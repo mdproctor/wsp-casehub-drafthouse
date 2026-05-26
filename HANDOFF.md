@@ -1,5 +1,5 @@
 # CaseHub DraftHouse — Session Handover
-**Date:** 2026-05-26 — infrastructure migration + Electron restoration
+**Date:** 2026-05-26 — infrastructure migration, Electron restoration, history cleanup
 
 ---
 
@@ -7,7 +7,11 @@
 
 Full infrastructure migration: `mdproctor/md-compare` → `casehubio/drafthouse`. 14-task plan executed via subagent-driven development. GitHub repo transferred, fork created at `mdproctor/drafthouse`. Maven artifacts renamed (`io.casehub:casehub-drafthouse`), Java packages moved to `io.casehub.drafthouse`. CaseHub parent POM, CI dispatch chain, build scripts, website, and all platform docs updated. Workspace scaffold created. Post-review fixes: `distributionManagement` for GitHub Packages, deprecated CORS property removed, stale test fixture name updated. Issue #15 closed.
 
-Electron shell restored (had been incorrectly removed during migration). Restored `java-server.js`, `main.js`, `preload.js`, `package.json` with DraftHouse naming. Made `index.html` dual-mode: Electron (IPC, native dialog, drop zones) and browser (relative URLs, prompt, query params). Issue #16 closed.
+Electron shell restored (had been incorrectly removed during migration). Restored `java-server.js`, `main.js`, `preload.js`, `package.json` with DraftHouse naming. Made `index.html` dual-mode: Electron (IPC, native dialog, drop zones via `file.path`) and browser (relative URLs, prompt, query params). Issue #16 closed.
+
+Git history cleaned: semantic squash collapsed 13 migration commits (including Electron removal and restoration) into 2 clean commits — docs then migration with Electron intact throughout. The removal never appears in `git log`.
+
+CLAUDE.md updated with architectural direction: DraftHouse is standalone today, Claudony plugin tomorrow. Diff engine, word-level highlighting, and critique anchoring must be modular — cleanly separable from the Electron shell and Quarkus serving layer.
 
 ## Cross-repo changes made
 
