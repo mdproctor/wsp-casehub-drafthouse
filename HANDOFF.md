@@ -1,11 +1,13 @@
 # CaseHub DraftHouse — Session Handover
-**Date:** 2026-05-26 — infrastructure migration from md-compare
+**Date:** 2026-05-26 — infrastructure migration + Electron restoration
 
 ---
 
 ## What Was Done This Session
 
-Full infrastructure migration: `mdproctor/md-compare` → `casehubio/drafthouse`. 14-task plan executed via subagent-driven development. GitHub repo transferred, fork created at `mdproctor/drafthouse`. Maven artifacts renamed (`io.casehub:casehub-drafthouse`), Java packages moved to `io.casehub.drafthouse`, Electron layer removed (browser-only Quarkus app). CaseHub parent POM, CI dispatch chain, build scripts, website, and all platform docs updated. Workspace scaffold created. Post-review fixes: `distributionManagement` for GitHub Packages, deprecated CORS property removed, stale test fixture name updated. Issue #15 closed.
+Full infrastructure migration: `mdproctor/md-compare` → `casehubio/drafthouse`. 14-task plan executed via subagent-driven development. GitHub repo transferred, fork created at `mdproctor/drafthouse`. Maven artifacts renamed (`io.casehub:casehub-drafthouse`), Java packages moved to `io.casehub.drafthouse`. CaseHub parent POM, CI dispatch chain, build scripts, website, and all platform docs updated. Workspace scaffold created. Post-review fixes: `distributionManagement` for GitHub Packages, deprecated CORS property removed, stale test fixture name updated. Issue #15 closed.
+
+Electron shell restored (had been incorrectly removed during migration). Restored `java-server.js`, `main.js`, `preload.js`, `package.json` with DraftHouse naming. Made `index.html` dual-mode: Electron (IPC, native dialog, drop zones) and browser (relative URLs, prompt, query params). Issue #16 closed.
 
 ## Cross-repo changes made
 
@@ -21,7 +23,7 @@ Start the **Sparge follow-on**: update Sparge references that pointed at md-comp
 
 - Qhorus #203: dispatch chain gap (Qhorus needs workflow to dispatch to DraftHouse on publish)
 - Sparge follow-on: update symlinks and references that pointed at md-compare
-- Playwright E2E tests: currently reference Electron paths — need migration to browser-only test harness
+- Playwright E2E tests: need migration to Java Playwright (npm Playwright removed, Electron stays)
 
 ## What's Next
 
@@ -29,7 +31,7 @@ Start the **Sparge follow-on**: update Sparge references that pointed at md-comp
 |---|-------------|-------|------------|-------|
 | 1 | Critique feature (LLM-driven document review via LangChain4j) | L | High | Research spec at `docs/superpowers/specs/2026-05-26-document-review-tool-research.md` |
 | 2 | Sparge follow-on cleanup | S | Low | Symlinks, node_modules, CLAUDE.md references |
-| 3 | Playwright test migration to Quarkus-native | M | Med | Remove Electron dependency from test harness |
+| 3 | Playwright test migration to Java Playwright | M | Med | Replace npm Playwright with Quarkus-native Java Playwright |
 
 ## References
 
