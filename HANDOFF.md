@@ -1,46 +1,34 @@
-# CaseHub DraftHouse — Session Handover
-**Date:** 2026-05-26 — infrastructure migration, Electron restoration, history cleanup
+# Handover — 2026-05-30
 
----
+**Branch:** `main` (clean)
 
-## What Was Done This Session
+## Last Session
 
-Full infrastructure migration: `mdproctor/md-compare` → `casehubio/drafthouse`. 14-task plan executed via subagent-driven development. GitHub repo transferred, fork created at `mdproctor/drafthouse`. Maven artifacts renamed (`io.casehub:casehub-drafthouse`), Java packages moved to `io.casehub.drafthouse`. CaseHub parent POM, CI dispatch chain, build scripts, website, and all platform docs updated. Workspace scaffold created. Post-review fixes: `distributionManagement` for GitHub Packages, deprecated CORS property removed, stale test fixture name updated. Issue #15 closed.
-
-Electron shell restored (had been incorrectly removed during migration). Restored `java-server.js`, `main.js`, `preload.js`, `package.json` with DraftHouse naming. Made `index.html` dual-mode: Electron (IPC, native dialog, drop zones via `file.path`) and browser (relative URLs, prompt, query params). Issue #16 closed.
-
-Git history cleaned: semantic squash collapsed 13 migration commits (including Electron removal and restoration) into 2 clean commits — docs then migration with Electron intact throughout. The removal never appears in `git log`.
-
-CLAUDE.md updated with architectural direction: DraftHouse is standalone today, Claudony plugin tomorrow. Diff engine, word-level highlighting, and critique anchoring must be modular — cleanly separable from the Electron shell and Quarkus serving layer.
-
-## Cross-repo changes made
-
-- **casehub/parent**: BOM entry, PLATFORM.md, APPLICATIONS.md, deep-dive doc, CI workflows, build-all.sh, dashboard index — all committed and pushed
-- **casehubio.github.io**: SVG architecture diagram + project card — committed and pushed
-- **casehubio/qhorus**: #203 filed (dispatch chain gap — Qhorus doesn't dispatch to DraftHouse)
+Delivered the Quarkus Playwright E2E infrastructure (#18): 37 tests passing (6 REST-Assured + 31 Playwright across 8 classes), diff legend UI (#17 closed), two local protocols, ADR 0001, diary entry, garden entry GE-20260529-a2095c (SSE pool exhaustion). Branch squashed to 5 clean commits and pushed upstream. Tutorial framing stripped from CLAUDE.md and LAYER-LOG.md per platform-wide cleanup.
 
 ## Immediate Next Step
 
-Start the **Sparge follow-on**: update Sparge references that pointed at md-compare (symlinks, shared node_modules, CLAUDE.md mentions). This was explicitly noted as out-of-scope for the migration plan.
+Check `docs/FEATURES.md` for the next candidate. Issue #19 (CI Playwright browser install) and #5 (index.html code quality) are the open trailing items.
 
 ## What's Left
 
-- Qhorus #203: dispatch chain gap (Qhorus needs workflow to dispatch to DraftHouse on publish)
-- Sparge follow-on: update symlinks and references that pointed at md-compare
-- Playwright E2E tests: need migration to Java Playwright (npm Playwright removed, Electron stays)
+- #19 — CI: install Playwright browser binaries and cache · XS · Low
+- #5 — index.html code quality (syncPanelDOM re-parse, loadFile label redundancy, missing await) · M · Med
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| 1 | Critique feature (LLM-driven document review via LangChain4j) | L | High | Research spec at `docs/superpowers/specs/2026-05-26-document-review-tool-research.md` |
-| 2 | Sparge follow-on cleanup | S | Low | Symlinks, node_modules, CLAUDE.md references |
-| 3 | Playwright test migration to Java Playwright | M | Med | Replace npm Playwright with Quarkus-native Java Playwright |
+| #5 | index.html code quality cleanup | M | Med | Open issue, no blocker |
+| Phase 2 | MCP tool surface, Qhorus channels, LLM reviewer, JGit versioning | XL | High | Needs brainstorm first; see research spec |
 
 ## References
 
-| What | Path |
-|------|------|
-| Migration plan | `docs/superpowers/plans/2026-05-26-drafthouse-infrastructure-move.md` |
+| Context | Where |
+|---|---|
+| Feature backlog | `docs/FEATURES.md` |
 | Research spec | `docs/superpowers/specs/2026-05-26-document-review-tool-research.md` |
-| Parent deep-dive | `casehub/parent/docs/repos/casehub-drafthouse.md` |
+| E2E spec | `docs/superpowers/specs/2026-05-29-quarkus-playwright-e2e-design.md` |
+| ADR | `wksp/adr/0001-quarkus-playwright-java-e2e.md` |
+| Blog | `wksp/blog/2026-05-30-mdp01-quarkus-playwright-infrastructure.md` |
+| GitHub | `casehubio/drafthouse` |
