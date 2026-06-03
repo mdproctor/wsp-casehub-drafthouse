@@ -1,0 +1,9 @@
+branch: issue-5-quality-cleanup
+project-sha: 5351f4863b25474f05d0c41285a0fb899c793832
+date: 2026-06-03
+issue: 5
+issue-repo: casehubio/drafthouse
+flyway-next-v: none
+design-repo: project
+design-section-hashes:
+covers: 5,19,32,24,25
