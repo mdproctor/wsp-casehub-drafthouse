@@ -1,34 +1,37 @@
-# Handover — 2026-05-30
+# Handover — 2026-06-04
 
 **Branch:** `main` (clean)
 
 ## Last Session
 
-Delivered the Quarkus Playwright E2E infrastructure (#18): 37 tests passing (6 REST-Assured + 31 Playwright across 8 classes), diff legend UI (#17 closed), two local protocols, ADR 0001, diary entry, garden entry GE-20260529-a2095c (SSE pool exhaustion). Branch squashed to 5 clean commits and pushed upstream. Tutorial framing stripped from CLAUDE.md and LAYER-LOG.md per platform-wide cleanup.
+Closed branch `issue-5-quality-cleanup`: four issues done (#5, #19, #32, #24). Delivered `DraftHouseMcpTools` (`start_review`, `update_selection`, `query_review`, `end_review`) replacing the deprecated REST scaffold. Fixed stale-snapshot bug in `ReviewerChannelBackend` (was holding snapshot, now reads live from registry on each `post()`). Simplified `ReviewSession` — docs on record not DataService. Also fixed work-start/work-end skills to support batched `covers:` field for multi-issue branches, and synced that change to cc-praxis + installed locally.
 
 ## Immediate Next Step
 
-Check `docs/FEATURES.md` for the next candidate. Issue #19 (CI Playwright browser install) and #5 (index.html code quality) are the open trailing items.
+Run `/work` for issue #25 — integration test: full QUERY→Commitment→RESPONSE lifecycle with H2 Qhorus datasource (`@QuarkusTest`, MODE=PostgreSQL).
 
 ## What's Left
 
-- #19 — CI: install Playwright browser binaries and cache · XS · Low
-- #5 — index.html code quality (syncPanelDOM re-parse, loadFile label redundancy, missing await) · M · Med
+- **#25** — Integration test: QUERY→Commitment→RESPONSE lifecycle · M · Med
+- **#33** — `DraftHouseMcpTools`: orphaned reviewer instance on `start_review` partial failure (no `deregister` on InstanceService) · S · Low
+- **parent#169** — PLATFORM.md + APPLICATIONS.md need DraftHouseMcpTools capability row (filed on casehubio/parent) · XS · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #5 | index.html code quality cleanup | M | Med | Open issue, no blocker |
-| Phase 2 | MCP tool surface, Qhorus channels, LLM reviewer, JGit versioning | XL | High | Needs brainstorm first; see research spec |
+| #25 | Integration test: QUERY→Commitment→RESPONSE | M | Med | Prereq for #24 to be truly production-ready |
+| #27 | Debate channel: map DebateChannel to Qhorus type | M | Med | Blocked by #24 completing — now unblocked |
+| #26 | Review loop: session continuity, sub-agent architecture | L | High | Design issue; needs brainstorm before any code |
+| #31 | Migrate DebateChannel parser to ChannelProjection SPI | — | — | Hard-blocked: casehubio/qhorus#230 must ship first |
 
 ## References
 
 | Context | Where |
 |---|---|
 | Feature backlog | `docs/FEATURES.md` |
-| Research spec | `docs/superpowers/specs/2026-05-26-document-review-tool-research.md` |
-| E2E spec | `docs/superpowers/specs/2026-05-29-quarkus-playwright-e2e-design.md` |
-| ADR | `wksp/adr/0001-quarkus-playwright-java-e2e.md` |
-| Blog | `wksp/blog/2026-05-30-mdp01-quarkus-playwright-infrastructure.md` |
+| MCP tools spec (v2) | `docs/superpowers/specs/2026-06-04-drafthouse-mcp-tools-design.md` |
+| ADRs 0002, 0003 | `wksp/adr/` |
+| Blog mdp05 | `wksp/blog/2026-06-04-mdp05-mcp-surface-and-a-stale-snapshot.md` |
 | GitHub | `casehubio/drafthouse` |
+| Protocols PP-20260604 | `docs/protocols/mcp-tool-error-strings.md`, `mcp-tool-llm-prompt-injection.md` |
