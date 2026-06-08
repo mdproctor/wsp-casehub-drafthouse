@@ -1,0 +1,9 @@
+branch: issue-33-cleanup-and-sentinel
+project-sha: 12e8ec9
+date: 2026-06-08
+issue: 33
+issue-repo: casehubio/drafthouse
+covers: 33,38,39
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes:
