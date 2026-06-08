@@ -1,29 +1,27 @@
-# Handover — 2026-06-04
+# Handover — 2026-06-08
 
 **Branch:** `main` (clean)
 
+*Updated: #25, #27, #31, parent#169 closed — removed from backlog.*
+
 ## Last Session
 
-Closed branch `issue-5-quality-cleanup`: four issues done (#5, #19, #32, #24). Delivered `DraftHouseMcpTools` (`start_review`, `update_selection`, `query_review`, `end_review`) replacing the deprecated REST scaffold. Fixed stale-snapshot bug in `ReviewerChannelBackend` (was holding snapshot, now reads live from registry on each `post()`). Simplified `ReviewSession` — docs on record not DataService. Also fixed work-start/work-end skills to support batched `covers:` field for multi-issue branches, and synced that change to cc-praxis + installed locally.
+Completed #27 (debate channel): implemented full debate MCP tool surface (`start_debate`, `raise_point`, `respond_to`, `flag_human`, `get_debate_summary`, `end_debate`) with `DebateChannelBackend`, `DebateChannelBackendFactory`, `DebateSessionRegistry` SPI + impl, and `DebateChannelProjection`/`ReviewChannelProjection` split. Extracted `DraftHouseInstances`. Synced `ARC42STORIES.MD` and design spec. Also closed #25 (integration test lifecycle) and #31 (ChannelProjection SPI migration).
 
 ## Immediate Next Step
 
-Run `/work` for issue #25 — integration test: full QUERY→Commitment→RESPONSE lifecycle with H2 Qhorus datasource (`@QuarkusTest`, MODE=PostgreSQL).
+Run `/work` for #33 — orphaned reviewer instance on `start_review` partial failure (small, low complexity, no unknowns).
 
 ## What's Left
 
-- **#25** — Integration test: QUERY→Commitment→RESPONSE lifecycle · M · Med
 - **#33** — `DraftHouseMcpTools`: orphaned reviewer instance on `start_review` partial failure (no `deregister` on InstanceService) · S · Low
-- **parent#169** — PLATFORM.md + APPLICATIONS.md need DraftHouseMcpTools capability row (filed on casehubio/parent) · XS · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #25 | Integration test: QUERY→Commitment→RESPONSE | M | Med | Prereq for #24 to be truly production-ready |
-| #27 | Debate channel: map DebateChannel to Qhorus type | M | Med | Blocked by #24 completing — now unblocked |
-| #26 | Review loop: session continuity, sub-agent architecture | L | High | Design issue; needs brainstorm before any code |
-| #31 | Migrate DebateChannel parser to ChannelProjection SPI | — | — | Hard-blocked: casehubio/qhorus#230 must ship first |
+| #33 | Orphaned reviewer instance on start_review partial failure | S | Low | Quick bug fix |
+| #26 | Review loop: session continuity, context management, sub-agent architecture | L | High | Design issue; needs brainstorm before any code |
 
 ## References
 
@@ -31,6 +29,7 @@ Run `/work` for issue #25 — integration test: full QUERY→Commitment→RESPON
 |---|---|
 | Feature backlog | `docs/FEATURES.md` |
 | MCP tools spec (v2) | `docs/superpowers/specs/2026-06-04-drafthouse-mcp-tools-design.md` |
+| Debate design spec | `docs/superpowers/specs/2026-06-05-debate-channel-design.md` |
 | ADRs 0002, 0003 | `wksp/adr/` |
 | Blog mdp05 | `wksp/blog/2026-06-04-mdp05-mcp-surface-and-a-stale-snapshot.md` |
 | GitHub | `casehubio/drafthouse` |
