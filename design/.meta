@@ -1,0 +1,9 @@
+branch: issue-26-review-session-continuity
+project-sha: d695a5d3ae54ae4878a65e0cdd57167fce304bb5
+date: 2026-06-08
+issue: 26
+issue-repo: casehubio/drafthouse
+covers: 26
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes:
