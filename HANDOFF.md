@@ -1,40 +1,34 @@
-# Handover — 2026-06-09
+# Handover — 2026-06-10
 
-**Branch:** `main` (clean)
+**Branch:** `main` (clean — branch closed this session)
 
 ## Last Session
 
-Closed branch `issue-26-review-session-continuity`. Designed and implemented the sub-agent architecture for DraftHouse debate channels: `ChannelAgentHandler` SPI with `ChannelAgentDispatcher @ObservesAsync`, six concrete handler beans (VERIFY/ARBITRATE/DEEP_ANALYSIS/CONSISTENCY_CHECK/NEUTRAL_SUMMARY/CUSTOM), `AbstractDebateSubAgentHandler` with shared `handles()` + `buildResponse()`, reasoning memos per round, and provenance rendering with `⊕` markers. Standardised all `entryType` encoding to `EntryType.name()` (uppercase) with type-safe `EntryType.valueOf()` switch in the projection. 63 unit tests green. Spec, plan, ARC42 updated. devtown confirmed the `ChannelAgentHandler` pattern is useful — tracked in #42 for extraction. Issue #26 closed and landed on `casehubio/drafthouse` upstream.
+Closed branch `issue-40-restart-from-n`. Delivered four issues: #40 (`restart_from_round` + `get_debate_summary_at_round` MCP tools, `RoundBoundedProjection` decorator, RESTART_CONTEXT string-check pattern, `request_subagent` round param), #43 (SummaryRenderer coverage tests), #44 (CDI augmentation fix — `casehub-platform` runtime scope), #47 (`SubAgentE2ETest` full async dispatch chain). 185/185 tests pass. ARC42 Chapter 7 written; casehubio/parent#218 filed for PLATFORM.md sync.
 
 ## Immediate Next Step
 
-Pick the next issue from `docs/FEATURES.md` or the deferred backlog. Most pressing: fix the pre-existing Quarkus CDI augmentation failure (#44) that blocks `@QuarkusTest` — once resolved, the E2E sub-agent test (#47) can be written.
+Run `/work` to pick the next issue from the backlog. Most pressing candidate: #42 (channel-reactive agent pattern extraction to patterns repo — wait for devtown second consumer first).
 
 ## What's Left
 
-- `#44` — Quarkus CDI augmentation failure (`CurrentPrincipal` injection ambiguity) · S · Med
-- `#47` — `SubAgentE2ETest` blocked by #44 · S · Low (once #44 is fixed)
-- `#43` — SummaryRenderer rendering tests (memos, sub-task findings) · S · Low
-- `#40` — Restart-from-N semantics for debate sessions · M · Med
-- `#41` — Threshold auto-reset + context meter UI · M · Med
+- `#49` — `findingsIncluded` count in `restart_from_round` response includes PENDING sub-tasks; intentional per spec, filed for future refinement · XS · Low
+- `casehubio/parent#218` — PLATFORM.md sync: add `casehub-platform` runtime dep row + updated tool count for drafthouse · XS · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #44 | Fix Quarkus CDI augmentation — CurrentPrincipal injection ambiguity | S | Med | Blocks #47; pre-existing |
-| #42 | Channel-reactive agent pattern extraction to patterns repo | M | Med | Wait for devtown second consumer |
-| #40 | Restart-from-N semantics | M | Med | Depends on channel history being self-bootstrapping (done) |
+| #42 | Channel-reactive agent pattern extraction to patterns repo | M | Med | Wait for devtown second consumer before extracting |
+| #41 | Threshold auto-reset + context meter UI | M | Med | Independent of #42 |
 
 ## References
 
 | Context | Where |
 |---|---|
-| Feature backlog | `docs/FEATURES.md` |
-| Latest blog | `wksp/blog/2026-06-09-mdp11-the-handler-that-knew-nothing.md` |
-| Sub-agent spec | `docs/superpowers/specs/2026-06-09-review-session-continuity-design.md` |
-| Implementation plan | `docs/superpowers/plans/2026-06-09-review-session-continuity.md` |
-| ARC42 (Chapter 6 added) | `ARC42STORIES.MD` |
-| Garden entries (new) | `jvm/GE-20260609-d93a6d` (ObservesAsync param), `tools/GE-20260609-496817` (SOH sentinel), `jvm/GE-20260609-0bf5b9` (stream reduce last), `jvm/GE-20260609-75e00d` (CDI test constructor) |
-| Protocol (new) | `casehub/debate-entry-type-encoding-standard.md` (PP-20260609-a443ad) |
+| Latest blog | `blog/2026-06-09-mdp12-restart-from-round.md` |
+| Restart-from-round spec | `docs/superpowers/specs/2026-06-09-restart-from-round-design.md` |
+| ARC42 (Chapter 7 added) | `ARC42STORIES.MD` |
+| Protocols (new) | `docs/protocols/debate-restart-context-not-entry-type.md`, `docs/protocols/filtering-projection-content-check.md` |
+| Garden entry (new) | `jvm/GE-20260609-0e178e` (ProjectionResult.isEmpty() cursor semantics) |
 | GitHub | `casehubio/drafthouse` |
