@@ -1,3 +1,5 @@
+*Updated: parent#218 closed — removed from backlog.*
+
 # Handover — 2026-06-10
 
 **Branch:** `main` (clean — branch closed this session)
@@ -17,7 +19,6 @@ Then run `/work` on whichever sub-project to start next.
 
 ## What's Left
 
-- `casehubio/parent#218` — PLATFORM.md sync: `casehub-platform` runtime dep row + tool count · XS · Low
 - `casehubio/parent#223` — PLATFORM.md N-participant: update "Peer-to-peer" → "Multi-participant" + describe 5 roles · XS · Low
 - #41 sub-projects 2, 3, 4 — no GitHub issues filed yet; file before implementing · M–XL · Med–High
 
