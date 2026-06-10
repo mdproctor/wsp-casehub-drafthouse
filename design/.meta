@@ -1,0 +1,9 @@
+branch: issue-49-debate-quality-batch
+project-sha: 40f33d2bc3de09916b18417479437597657dde3e
+date: 2026-06-10
+issue: 49
+issue-repo: casehubio/drafthouse
+covers: 49,48,46,45,41
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
