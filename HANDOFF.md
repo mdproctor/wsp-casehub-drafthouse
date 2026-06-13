@@ -1,3 +1,5 @@
+*Updated: parent#223, #41 closed — removed from backlog.*
+
 # Handover — 2026-06-12
 
 **Branch:** `main` (clean — branch closed this session)
@@ -8,7 +10,7 @@ Closed branch `issue-50-sse-debate-events`. Delivered SSE push delivery for deba
 
 ## Immediate Next Step
 
-File GitHub issues for #41 sub-projects 3 and 4 before picking them up:
+File GitHub issues for the remaining sub-projects before picking them up. #41 is now closed but sub-projects 3 and 4 need their own standalone issues:
 - Sub-project 3: DraftHouse workspace UI redesign — modular panels, channel view, accept/decline pattern generalised
 - Sub-project 4: Context meter + auto-reset MCP tool
 
@@ -16,15 +18,14 @@ Then run `/work` on whichever sub-project to start next.
 
 ## What's Left
 
-- `casehubio/parent#223` — PLATFORM.md N-participant: update "Peer-to-peer" → "Multi-participant" + describe 5 roles · XS · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
 | #42 | Channel-reactive agent pattern extraction to patterns repo | M | Med | Wait for devtown second consumer before extracting |
-| #41-sp3 | DraftHouse workspace UI redesign — modular panels, channel view | XL | High | File issue first; prerequisite: sp2 (done) |
-| #41-sp4 | Context meter + auto-reset MCP tool | M | Med | File issue first; can start after sp3 |
+| — | DraftHouse workspace UI redesign — modular panels, channel view (was #41-sp3) | XL | High | File standalone issue first; prerequisite: sp2 (done) |
+| — | Context meter + auto-reset MCP tool (was #41-sp4) | M | Med | File standalone issue first; can start after sp3 |
 
 ## References
 
