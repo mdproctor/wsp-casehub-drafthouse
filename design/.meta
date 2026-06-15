@@ -1,0 +1,9 @@
+branch: issue-55-e2e-debate-review-tracker
+project-sha: 531e9c4e0015d538e70cca7ea0b061a03140bcb2
+date: 2026-06-15
+issue: 55
+issue-repo: casehubio/drafthouse
+covers: 55
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
