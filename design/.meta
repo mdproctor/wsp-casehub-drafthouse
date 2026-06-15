@@ -1,0 +1,9 @@
+branch: issue-52-context-meter-auto-reset
+project-sha: d9a11225ed8f5fa883fb1ca695f7a94742a5bfad
+date: 2026-06-15
+issue: 52
+issue-repo: casehubio/drafthouse
+covers: 52
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
