@@ -1,0 +1,9 @@
+branch: issue-56-context-usage-sse-test-and-selection-scoped
+project-sha: 3c8729a2447ed152899bc54c4785fd8000163c20
+date: 2026-06-16
+issue: 56
+issue-repo: casehubio/drafthouse
+covers: 56,54
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
