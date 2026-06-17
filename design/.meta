@@ -1,0 +1,9 @@
+branch: issue-58-diff-legend-and-ui-batch
+project-sha: 85a6aceb5a6d1fe62482770f87df48af2b4d0c9c
+date: 2026-06-17
+issue: 58
+issue-repo: casehubio/drafthouse
+covers: 58,65,63,59
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
