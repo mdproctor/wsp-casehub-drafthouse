@@ -1,0 +1,9 @@
+branch: issue-67-documentset-refactor-batch
+project-sha: ae6f553e2eb26dcca48d22e93e1762791e196922
+date: 2026-06-17
+issue: 67
+issue-repo: casehubio/drafthouse
+covers: 67
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
