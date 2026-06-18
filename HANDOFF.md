@@ -1,5 +1,7 @@
 # Handover — 2026-06-17
 
+*Updated: #67, #66 closed — removed from backlog.*
+
 **Branch:** `main` (clean — branch `issue-58-diff-legend-and-ui-batch` closed this session)
 
 ## Last Session
@@ -8,16 +10,14 @@ Closed #63, #59, #65 on one branch (#58 closed as duplicate of #17). Keyboard sh
 
 ## Immediate Next Step
 
-Run `/work` on #53 (brainstorming UI, L/High) or #42 (channel-reactive agent pattern, M/Med). #67 (S/Low refactor batch) is available for quick work.
+Run `/work` on #53 (brainstorming UI, L/High) or #42 (channel-reactive agent pattern, M/Med).
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #67 | Refactor: DocumentSet race, JSON dedup, private property access | S | Low | Code review follow-up from this session |
 | #53 | Brainstorming UI — richer option exploration | L | High | Design problem — visual brainstorming beyond terminal |
 | #42 | Channel-reactive agent pattern extraction to patterns repo | M | Med | Wait for devtown second consumer before extracting |
-| #66 | Unified diff view mode — toggle side-by-side vs unified | M | Med | — |
 
 ## Cross-Repo
 
