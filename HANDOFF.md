@@ -1,23 +1,23 @@
-# Handover — 2026-06-17
+# Handover — 2026-06-18
 
-*Updated: #67, #66 closed — removed from backlog.*
-
-**Branch:** `main` (clean — branch `issue-58-diff-legend-and-ui-batch` closed this session)
+**Branch:** `main` (clean — branch `issue-68-encapsulate-document-ops` closed this session)
 
 ## Last Session
 
-Closed #63, #59, #65 on one branch (#58 closed as duplicate of #17). Keyboard shortcuts overlay with shadow DOM-aware input guard (GE-20260617-cc0834). `DocumentSet` replaces `DebateSession.specPath` — sessions now track a collection of documents with labels. Four new MCP tools (`add_document`, `remove_document`, `list_documents`, `set_comparison`) + REST endpoints + SSE push. Browser dropdown for document switching. `export_debate_summary` writes rendered summary to disk. Cross-repo fix: qhorus `ActorIdentityProvider` import updated for ledger#148 refactoring (casehubio/ledger#149 filed). Code review surfaced 7 findings — 4 fixed, 3 filed as #67.
+Closed #68 and #64 on one branch. `DebateSession` now encapsulates all compound document operations — `addDocument()`, `removeDocument()`, `setComparison()` — with proper synchronization and consistent error signaling. `DocumentSet` is package-private; `DocumentEntry` and `ComparisonPair` are top-level domain records. `specPath()` renamed to `primaryPath()`. Pluggable session persistence via `DebateSessionStore` SPI with `DebateSessionSnapshot` serialization. JPA store gated by `@IfBuildProperty`, Flyway V100 on shared qhorus datasource. Two garden entries submitted: named PU compound config (GE-20260618-08cb96), SmallRye Config strict validation with `@IfBuildProperty` (GE-20260618-979c68). Code review surfaced 1 finding (missing `@Transactional`) — fixed. Minor DDL improvement filed as #69.
 
 ## Immediate Next Step
 
-Run `/work` on #53 (brainstorming UI, L/High) or #42 (channel-reactive agent pattern, M/Med).
+Add ARC42STORIES.MD chapter entry for the encapsulation + persistence work (Chapters 9–10). Then pick next work: #53 (brainstorming UI, L/High) or #62 (multi-LLM reviewers, L/High).
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
+| #69 | Composite PKs on debate_session_document/participant tables | XS | Low | Code review follow-up |
 | #53 | Brainstorming UI — richer option exploration | L | High | Design problem — visual brainstorming beyond terminal |
-| #42 | Channel-reactive agent pattern extraction to patterns repo | M | Med | Wait for devtown second consumer before extracting |
+| #62 | Multi-LLM reviewers with personality library | L | High | Post-MVP; extends DebateAgentProvider SPI |
+| #42 | Channel-reactive agent pattern extraction | M | Med | Wait for devtown second consumer |
 
 ## Cross-Repo
 
@@ -27,7 +27,7 @@ Run `/work` on #53 (brainstorming UI, L/High) or #42 (channel-reactive agent pat
 
 | Context | Where |
 |---|---|
-| Design spec | `docs/superpowers/specs/2026-06-17-ui-batch-and-document-sets-design.md` |
-| Implementation plan | `docs/superpowers/plans/2026-06-17-ui-batch-and-document-sets.md` |
-| Garden entry | `GE-20260617-cc0834` — Shadow DOM keyboard event retargeting |
+| Design spec | `docs/superpowers/specs/2026-06-18-encapsulate-and-persist-debate-sessions-design.md` |
+| Implementation plan | `docs/superpowers/plans/2026-06-18-encapsulate-and-persist-debate-sessions.md` |
+| Garden entries | `GE-20260618-08cb96` — Named PU compound config; `GE-20260618-979c68` — SmallRye Config + @IfBuildProperty |
 | GitHub | `casehubio/drafthouse` |
