@@ -1,0 +1,9 @@
+branch: issue-68-encapsulate-document-ops
+project-sha: 0b730138430a82e74f4f460756f747e183a2c044
+date: 2026-06-18
+issue: 68
+issue-repo: casehubio/drafthouse
+covers: 68,64
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 
