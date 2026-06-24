@@ -18,9 +18,7 @@ Pick next work from What's Next. #53 (brainstorming UI) was queued — check for
 | #72 | Pipeline orchestration — sequential multi-perspective review sessions | L | High | Unblocked by #62 |
 | #42 | Channel-reactive agent pattern extraction | M | Med | Wait for devtown second consumer |
 
-## Cross-Repo
-
-- casehubio/eidos#64 — register DraftHouse reviewer descriptors, validate renderer, CDI fix. In parallel — DraftHouse mock works standalone.
+*Updated: casehubio/eidos#64 closed — removed from cross-repo deps.*
 
 ## References
 
