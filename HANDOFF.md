@@ -1,24 +1,23 @@
-# Handover — 2026-06-24
+# Handover — 2026-06-28
 
-**Branch:** `main` (clean — branch `issue-73-review-channel-agentregistry` closed this session)
+**Branch:** `main` (clean — branch `issue-78-channelservice-create-signature` closed this session)
 
 ## Last Session
 
-Closed #73 via work-end. Unified review channel personality resolution with AgentRegistry — extracted `ReviewerResolver` as single entry point, moved `list_reviewers` and `get_reviewer_instructions` to `DraftHouseMcpTools`, removed `config.reviewer().personality()`. Squashed 13 commits → 3 (spec, design spec, implementation). Build verified green (375 tests). Blog published to mdproctor.github.io. Spec posted to #73 as collapsible comment.
+Fixed compile error from upstream qhorus `ChannelService.create()` API change — positional params → `ChannelCreateRequest` builder. 3 production call sites + 12 test mocks updated. 375 tests green. Also audited DraftHouse patterns for extraction to new `casehub-blocks` repo (parent#310) and posted detailed extraction plan as comment.
 
 ## Immediate Next Step
 
-Pick next work from What's Next. #53 (brainstorming UI) was queued — check for foundational pages migration issue before starting.
+Pick next work from What's Next. #53 (brainstorming UI) was queued — check for foundational pages migration issue before starting. Or begin blocks extraction work per parent#310.
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
 | #53 | Brainstorming UI — richer option exploration | L | High | Now has pages system — check for foundational migration issue first |
+| #76 | Extract debate channel infrastructure to blocks | L | High | Detailed plan posted on parent#310 |
 | #72 | Pipeline orchestration — sequential multi-perspective review sessions | L | High | Unblocked by #62 |
-| #42 | Channel-reactive agent pattern extraction | M | Med | Wait for devtown second consumer |
-
-*Updated: casehubio/eidos#64 closed — removed from cross-repo deps.*
+| #42 | Channel-reactive agent pattern extraction | M | Med | Included in blocks extraction plan (parent#310) |
 
 ## References
 
