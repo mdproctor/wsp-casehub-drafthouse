@@ -1,0 +1,9 @@
+branch: issue-78-channelservice-create-signature
+project-sha: b4325e77d5dc9df5ef913095b7051555e14ed4a4
+date: 2026-06-28
+issue: 78
+issue-repo: casehubio/drafthouse
+covers: 78
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 4d2cc5ab:##
