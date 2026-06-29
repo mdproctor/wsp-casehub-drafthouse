@@ -1,16 +1,14 @@
 # Handover — 2026-06-29
 
-**Branch:** `main` (clean — branch `issue-81-extract-p5-conversation-protocol` closed this session)
+**Branch:** `main` (clean — branch `issue-83-extract-conversation-fold` closed this session)
 
 ## Last Session
 
-Completed P5 extraction (#81) — structured conversation protocol from DraftHouse to casehub-blocks (`io.casehub.blocks.conversation`). Concrete protocol design: ConversationProjection abstract fold with 3 hook methods, ConversationRenderer with configurable vocabulary maps, string-typed entry types/statuses/roles. DraftHouse's 253-line DebateChannelProjection → ~100-line subclass. 96 blocks tests + 438 DraftHouse tests green. Design review ($31) surfaced 33 issues — all resolved. Also pushed P1-P4 blocks commits (same session as previous handover).
-
-Bug fix discovered during extraction: SUB_TASK_FINDING/ERROR handlers were overwriting requestedBy from the original REQUEST.
+Completed #83 — extracted ConversationFold utility to casehub-blocks. The P5 conversation protocol extraction had left fold operations locked behind ConversationProjection's sentinel-specific parsing. ConversationFold exposes them as 7 public static methods. ReviewChannelProjection simplified from 155 to 97 lines. Also committed the upstream blocks change (ConversationFold + ConversationProjection refactor) to casehubio/blocks main.
 
 ## Immediate Next Step
 
-P5 is done. The blocks conversation package is complete. Next extraction candidates: DebateSession lifecycle or document working set — but these are tightly coupled to DraftHouse-specific concerns (Eidos agents, spec files) and may not generalise as cleanly.
+Both extraction candidates from #76 (the broader extraction epic) are done. What's left on #76 is larger, tightly-coupled DraftHouse-specific concerns. Next work is discretionary — pick from What's Next.
 
 ## What's Next
 
@@ -21,6 +19,5 @@ P5 is done. The blocks conversation package is complete. Next extraction candida
 
 ## References
 
-- Design spec: `docs/superpowers/specs/2026-06-29-p5-conversation-protocol-extraction-design.md`
-- Blocks repo: `~/claude/casehub/blocks` — `io.casehub.blocks.conversation` package
-- Design review tracker: `~/adr/casehub-drafthouse/p5-conversation-protocol-extraction-20260629-074410/tracker.md`
+- Blocks commit: `4d9e145` — `io.casehub.blocks.conversation.ConversationFold`
+- Blog entry: `blog/2026-06-29-mdp21-the-half-extracted-fold.md`
