@@ -1,0 +1,9 @@
+branch: issue-80-extract-p4-agent-dispatch
+project-sha: e6fb149f204c0a4593b1f8c8fcece05824bcf596
+date: 2026-06-29
+issue: 80
+issue-repo: casehubio/drafthouse
+covers: 80
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 4d2cc5ab:##
