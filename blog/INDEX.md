@@ -14,3 +14,4 @@
 | [2026-06-24-mdp18-the-single-entry-point.md](2026-06-24-mdp18-the-single-entry-point.md) | 2026-06-24 | Review channel AgentRegistry migration — boundary questions the config swap exposed, single entry point claim that wasn't, snapshot vs re-resolution semantics |
 | [2026-06-29-mdp19-the-first-blocks.md](2026-06-29-mdp19-the-first-blocks.md) | 2026-06-29 | First casehub-blocks extraction — P1–P3 utility patterns, invisible SOH byte gotcha |
 | [2026-06-29-mdp20-the-dispatch-boundary.md](2026-06-29-mdp20-the-dispatch-boundary.md) | 2026-06-29 | P4 channel agent dispatch extraction — Consumer/Function boundary decision, CDI no-args constructor |
+| [2026-06-29-mdp21-the-half-extracted-fold.md](2026-06-29-mdp21-the-half-extracted-fold.md) | 2026-06-29 | ConversationFold extraction — private fold operations exposed as public utility, ReviewChannelProjection simplified |
