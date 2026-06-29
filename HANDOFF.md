@@ -1,23 +1,23 @@
-# Handover — 2026-06-28
+# Handover — 2026-06-29
 
-**Branch:** `main` (clean — branch `issue-78-channelservice-create-signature` closed this session)
+**Branch:** `main` (clean — branch `issue-79-extract-p1-p3-to-blocks` closed this session)
 
 ## Last Session
 
-Fixed compile error from upstream qhorus `ChannelService.create()` API change — positional params → `ChannelCreateRequest` builder. 3 production call sites + 12 test mocks updated. 375 tests green. Also audited DraftHouse patterns for extraction to new `casehub-blocks` repo (parent#310) and posted detailed extraction plan as comment.
+Closed #79 — extracted P1–P3 utility patterns from DraftHouse to casehub-blocks. Created ChannelMessageMeta, ContextTracker/ContextSnapshot, BoundedProjectionDecorator in blocks (34 tests). DraftHouse switched to consume from blocks: DebateProtocol delegates to ChannelMessageMeta, RoundBoundedProjection extends BoundedProjectionDecorator. Net -222 lines. Also fixed #78 (ChannelService.create() API change) and created parent#321 (blocks repo setup child issue) earlier in the session.
 
 ## Immediate Next Step
 
-Pick next work from What's Next. #53 (brainstorming UI) was queued — check for foundational pages migration issue before starting. Or begin blocks extraction work per parent#310.
+P4 (channel agent dispatch) and P5 (structured conversation protocol) are next per parent#310 extraction plan. P4 is S/Low — the SPI + dispatcher. P5 is L and the one Claudony is waiting for.
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #53 | Brainstorming UI — richer option exploration | L | High | Now has pages system — check for foundational migration issue first |
-| #76 | Extract debate channel infrastructure to blocks | L | High | Detailed plan posted on parent#310 |
+| — | P4: Channel agent dispatch → blocks | S | Low | SPI + dispatcher; unblocks P5 |
+| — | P5: Structured conversation protocol → blocks | L | High | The main value — Claudony dependency |
+| #53 | Brainstorming UI — richer option exploration | L | High | Check for foundational pages migration issue first |
 | #72 | Pipeline orchestration — sequential multi-perspective review sessions | L | High | Unblocked by #62 |
-| #42 | Channel-reactive agent pattern extraction | M | Med | Included in blocks extraction plan (parent#310) |
 
 ## References
 
