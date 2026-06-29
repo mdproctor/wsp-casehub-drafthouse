@@ -1,21 +1,26 @@
 # Handover — 2026-06-29
 
-**Branch:** `main` (clean — branch `issue-79-extract-p1-p3-to-blocks` closed this session)
+**Branch:** `main` (clean — branch `issue-80-extract-p4-agent-dispatch` closed this session)
 
 ## Last Session
 
-Closed #79 — extracted P1–P3 utility patterns from DraftHouse to casehub-blocks. Created ChannelMessageMeta, ContextTracker/ContextSnapshot, BoundedProjectionDecorator in blocks (34 tests). DraftHouse switched to consume from blocks: DebateProtocol delegates to ChannelMessageMeta, RoundBoundedProjection extends BoundedProjectionDecorator. Net -222 lines. Also fixed #78 (ChannelService.create() API change) and created parent#321 (blocks repo setup child issue) earlier in the session.
+Extracted P1–P4 from DraftHouse to casehub-blocks across two branches:
+- #79 (P1–P3): ChannelMessageMeta, ContextTracker/Snapshot, BoundedProjectionDecorator — 34 blocks tests
+- #80 (P4): ChannelAgentHandler SPI, ChannelAgentDispatcher, ChannelAgentRequest, AgentTask, AgentResultParseException — 6 blocks tests
+
+Key design decisions: dispatcher uses Consumer/Function (not MessageService) to stay at API dep level; error dispatch via protected onError() override; CDI no-args constructor for proxy support.
+
+Also this session: fixed #78 (ChannelService.create() API change), created parent#321 (blocks repo setup issue), posted implementation guide on openclaw#31.
 
 ## Immediate Next Step
 
-P4 (channel agent dispatch) and P5 (structured conversation protocol) are next per parent#310 extraction plan. P4 is S/Low — the SPI + dispatcher. P5 is L and the one Claudony is waiting for.
+P5 (structured conversation protocol) is next — the big one. Needs design brainstorm first on naming, entry type generality, and agent role model.
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| — | P4: Channel agent dispatch → blocks | S | Low | SPI + dispatcher; unblocks P5 |
-| — | P5: Structured conversation protocol → blocks | L | High | The main value — Claudony dependency |
+| — | P5: Structured conversation protocol → blocks | L | High | Needs brainstorm — naming, entry types, agent roles |
 | #53 | Brainstorming UI — richer option exploration | L | High | Check for foundational pages migration issue first |
 | #72 | Pipeline orchestration — sequential multi-perspective review sessions | L | High | Unblocked by #62 |
 
