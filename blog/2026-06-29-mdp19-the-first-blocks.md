@@ -5,7 +5,7 @@ date: 2026-06-29
 type: phase-update
 entry_type: note
 subtype: diary
-projects: [casehub-drafthouse]
+projects: [casehub-drafthouse, casehub-blocks]
 tags: [extraction, casehub-blocks, refactoring]
 ---
 
