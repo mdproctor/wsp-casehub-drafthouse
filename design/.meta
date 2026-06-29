@@ -1,0 +1,9 @@
+branch: issue-79-extract-p1-p3-to-blocks
+project-sha: 04c511587d6aa46461c2808d548dca77ac7c6ad3
+date: 2026-06-29
+issue: 79
+issue-repo: casehubio/drafthouse
+covers: 79
+flyway-next-v: none
+design-repo: project
+design-section-hashes: 4d2cc5ab:##
