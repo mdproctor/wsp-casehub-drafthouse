@@ -1,23 +1,28 @@
-# Handover — 2026-06-29
+# Handover — 2026-06-30
 
-**Branch:** `main` (clean — branch `issue-83-extract-conversation-fold` closed this session)
+**Branch:** `main` (clean — branch `issue-75-adopt-casehub-pages-quinoa` closed this session)
 
 ## Last Session
 
-Completed #83 — extracted ConversationFold utility to casehub-blocks. The P5 conversation protocol extraction had left fold operations locked behind ConversationProjection's sentinel-specific parsing. ConversationFold exposes them as 7 public static methods. ReviewChannelProjection simplified from 155 to 97 lines. Also committed the upstream blocks change (ConversationFold + ConversationProjection refactor) to casehubio/blocks main.
+Completed #75 — adopted casehub-pages workbench via Quinoa. Replaced the 430-line hand-coded index.html shell with `loadSite()` using `split()`/`hostPanel()`. Migrated DebateEventBus to pages-event pattern (SSE bridge + CustomEvents). Deleted UiResource.java — Quinoa serves all static assets. 366 E2E tests pass. Created pages#64 epic (workbench primitives — all 5 child issues shipped by pages team) and drafthouse#84 epic (grouping #75 + #53).
+
+Also closed #82 (update #76 description) and #77 (verify Qhorus MCP config — internal only, no change needed). Filed #85 (deferred document badge dropdown).
 
 ## Immediate Next Step
 
-Both extraction candidates from #76 (the broader extraction epic) are done. What's left on #76 is larger, tightly-coupled DraftHouse-specific concerns. Next work is discretionary — pick from What's Next.
+#75 is done. #53 (brainstorming UI) is unblocked — it was waiting on casehub-pages adoption. Next work is discretionary — pick from What's Next.
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #53 | Brainstorming UI — richer option exploration | L | High | Check for foundational pages migration issue first |
-| #72 | Pipeline orchestration — sequential multi-perspective review sessions | L | High | Unblocked by #62 |
+| #53 | Brainstorming UI — richer option exploration | L | High | Part of #84 epic, unblocked by #75 |
+| #72 | Pipeline orchestration — sequential multi-perspective sessions | L | High | Server-side, no UI dependency |
+| #71 | Claude-to-Claude continuous conversation protocol | L | High | Server-side, autonomous agent dialogue |
+| #76 | Extract remaining debate infrastructure to blocks | L | High | Tightly-coupled concerns, needs design |
+| #42 | Channel-Reactive Agent pattern extraction | M | Med | After reference impl ships |
 
 ## References
 
-- Blocks commit: `4d9e145` — `io.casehub.blocks.conversation.ConversationFold`
-- Blog entry: `blog/2026-06-29-mdp21-the-half-extracted-fold.md`
+- Blog entry: `blog/2026-06-30-mdp22-the-workbench-switch.md`
+- Garden: GE-20260630-d5cad9 (Quinoa version gap), GE-20260630-bf0055 (node-version), GE-20260630-52827b (GitHub Packages 401)
