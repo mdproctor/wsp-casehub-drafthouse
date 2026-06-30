@@ -15,3 +15,4 @@
 | [2026-06-29-mdp19-the-first-blocks.md](2026-06-29-mdp19-the-first-blocks.md) | 2026-06-29 | First casehub-blocks extraction — P1–P3 utility patterns, invisible SOH byte gotcha |
 | [2026-06-29-mdp20-the-dispatch-boundary.md](2026-06-29-mdp20-the-dispatch-boundary.md) | 2026-06-29 | P4 channel agent dispatch extraction — Consumer/Function boundary decision, CDI no-args constructor |
 | [2026-06-29-mdp21-the-half-extracted-fold.md](2026-06-29-mdp21-the-half-extracted-fold.md) | 2026-06-29 | ConversationFold extraction — private fold operations exposed as public utility, ReviewChannelProjection simplified |
+| [2026-06-30-mdp22-the-workbench-switch.md](2026-06-30-mdp22-the-workbench-switch.md) | 2026-06-30 | casehub-pages workbench adoption — Quinoa replaces hand-coded shell, DebateEventBus replaced by pages-event, one component model for the platform |
