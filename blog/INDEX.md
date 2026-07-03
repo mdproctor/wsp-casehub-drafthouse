@@ -16,3 +16,4 @@
 | [2026-06-29-mdp20-the-dispatch-boundary.md](2026-06-29-mdp20-the-dispatch-boundary.md) | 2026-06-29 | P4 channel agent dispatch extraction — Consumer/Function boundary decision, CDI no-args constructor |
 | [2026-06-29-mdp21-the-half-extracted-fold.md](2026-06-29-mdp21-the-half-extracted-fold.md) | 2026-06-29 | ConversationFold extraction — private fold operations exposed as public utility, ReviewChannelProjection simplified |
 | [2026-06-30-mdp22-the-workbench-switch.md](2026-06-30-mdp22-the-workbench-switch.md) | 2026-06-30 | casehub-pages workbench adoption — Quinoa replaces hand-coded shell, DebateEventBus replaced by pages-event, one component model for the platform |
+| [2026-07-03-mdp23-making-drafthouse-work.md](2026-07-03-mdp23-making-drafthouse-work.md) | 2026-07-03 | End-to-end MCP demo — Safari marked crash, Claude Code type:url rejection, qhorus record migration, WebSocket push filed as #87 |
