@@ -1,28 +1,32 @@
-# Handover — 2026-06-30
+# Handover — 2026-07-03
 
-**Branch:** `main` (clean — branch `issue-75-adopt-casehub-pages-quinoa` closed this session)
+**Branch:** `main` (clean)
 
 ## Last Session
 
-Completed #75 — adopted casehub-pages workbench via Quinoa. Replaced the 430-line hand-coded index.html shell with `loadSite()` using `split()`/`hostPanel()`. Migrated DebateEventBus to pages-event pattern (SSE bridge + CustomEvents). Deleted UiResource.java — Quinoa serves all static assets. 366 E2E tests pass. Created pages#64 epic (workbench primitives — all 5 child issues shipped by pages team) and drafthouse#84 epic (grouping #75 + #53).
-
-Also closed #82 (update #76 description) and #77 (verify Qhorus MCP config — internal only, no change needed). Filed #85 (deferred document badge dropdown).
+Fixed qhorus API drift (#86) — 5 classes moved from `runtime` to `api` packages, 3 became records. 16 files updated across main and test source. Also fixed Safari `marked` crash (missing import) and set up `~/drafthouse-demo/` with `.mcp.json` (SSE transport) for end-to-end MCP testing. Demo works — Claude in demo folder drives the browser diff viewer live.
 
 ## Immediate Next Step
 
-#75 is done. #53 (brainstorming UI) is unblocked — it was waiting on casehub-pages adoption. Next work is discretionary — pick from What's Next.
+Start a new session and pick up #87 — replace SSE polling with pages WebSocket push. This is a brainstorm-first task (new server endpoint + client pipeline integration). Unpushed commit `e23cbfc` on project main needs pushing.
+
+## What's Left
+
+- Push `e23cbfc` to project remote · XS · Low
+- Test source still uses `new Message()` with setters — `Message` is now a record with builder pattern. Tests will fail until migrated · M · Low
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #53 | Brainstorming UI — richer option exploration | L | High | Part of #84 epic, unblocked by #75 |
-| #72 | Pipeline orchestration — sequential multi-perspective sessions | L | High | Server-side, no UI dependency |
-| #71 | Claude-to-Claude continuous conversation protocol | L | High | Server-side, autonomous agent dialogue |
-| #76 | Extract remaining debate infrastructure to blocks | L | High | Tightly-coupled concerns, needs design |
-| #42 | Channel-Reactive Agent pattern extraction | M | Med | After reference impl ships |
+| #87 | Replace SSE polling with pages WebSocket push | L | Med | Pages infra exists; needs server WS endpoint |
+| #53 | Brainstorming UI — richer option exploration | L | High | Unblocked by #75 |
+| #72 | Pipeline orchestration — sequential multi-perspective | L | High | Server-side |
+| #71 | Claude-to-Claude continuous conversation protocol | L | High | Server-side |
+| #85 | Document badge dropdown for A/B slot assignment | S | Low | Deferred UI polish |
 
 ## References
 
-- Blog entry: `blog/2026-06-30-mdp22-the-workbench-switch.md`
-- Garden: GE-20260630-d5cad9 (Quinoa version gap), GE-20260630-bf0055 (node-version), GE-20260630-52827b (GitHub Packages 401)
+- Blog: `blog/2026-07-03-mdp23-making-drafthouse-work.md`
+- Demo folder: `~/drafthouse-demo/` (`.mcp.json`, `CLAUDE.md`, sample files)
+- Garden: GE-20260703-e32c1d (Claude Code MCP type:url), GE-20260703-adad41 (quarkus dual transport)
