@@ -17,3 +17,4 @@
 | [2026-06-29-mdp21-the-half-extracted-fold.md](2026-06-29-mdp21-the-half-extracted-fold.md) | 2026-06-29 | ConversationFold extraction — private fold operations exposed as public utility, ReviewChannelProjection simplified |
 | [2026-06-30-mdp22-the-workbench-switch.md](2026-06-30-mdp22-the-workbench-switch.md) | 2026-06-30 | casehub-pages workbench adoption — Quinoa replaces hand-coded shell, DebateEventBus replaced by pages-event, one component model for the platform |
 | [2026-07-03-mdp23-making-drafthouse-work.md](2026-07-03-mdp23-making-drafthouse-work.md) | 2026-07-03 | End-to-end MCP demo — Safari marked crash, Claude Code type:url rejection, qhorus record migration, WebSocket push filed as #87 |
+| [2026-07-04-mdp25-closing-the-small-gaps.md](2026-07-04-mdp25-closing-the-small-gaps.md) | 2026-07-04 | WebSocket reconnection tests (catch-up, stale subscription, concurrent push) + document badge dropdown with A/B slot assignment |
