@@ -181,8 +181,10 @@ structured location metadata.
 offline, zero dependencies, git-evidenced, headless). The adapter is permanent
 infrastructure, not a temporary bridge. Making design-review emit Qhorus channel messages
 would require a running Qhorus instance in every Claude Code session, which defeats the
-headless design that makes it effective. The adapter translates file-based output into
-`ConversationState` for visualization — a one-directional parse, not a live sync.
+headless design that makes it effective. The adapter is **bi-directional**: file → entries
+for visualization (batch parse on load or round completion), and UI → files for human
+intervention (§4.3 concurrent HIL). It is not a live sync — there is no continuous
+bidirectional synchronization — but both directions are part of the permanent design.
 
 ### 4.3 HIL is the unlock channels provide over files
 
@@ -217,7 +219,21 @@ components render differently based on the session's current phase.
 Entry types may stay generic — the phase context determines rendering.
 
 **Phase transition model (directional):** Each phase creates a **new session** linked
-by a shared document ID. Reasons:
+by a shared document identity. The document identity is **path-based**: the canonical
+file path (e.g., `specs/2026-07-05-document-workbench-exploration.md`) is the identifier.
+This matches how design-review already works — `.spec-path` stores the absolute path,
+and the tracker references it. For genesis (where the document doesn't exist yet), the
+identity is assigned when the document is first saved.
+
+Path-based identity is fragile across renames. The workbench should maintain a rename
+registry (old path → new path) so that sessions created against the pre-rename path
+remain linked. This is analogous to how git detects renames by content similarity —
+simple, imperfect, but sufficient for the common case. A UUID-based identity model
+would be more robust but requires introducing a new entity (`DocumentWorkbench` or
+similar) that doesn't exist in the current data model. The follow-up spec should
+evaluate whether the rename frequency justifies the additional entity.
+
+Reasons for separate sessions per phase:
 
 - Phase-specific conversation history shouldn't pollute other phases. Genesis Q&A
   has different semantics from adversarial review findings.
@@ -318,7 +334,7 @@ platform components. The document workbench is a platform component.
 
 ## 6. Architecture: The Adapter
 
-### 6.1 Bi-directional bridge
+### 6.1 Bi-directional adapter
 
 ```
 ┌──────────────────┐         ┌─────────────┐         ┌──────────────────┐
@@ -333,17 +349,26 @@ platform components. The document workbench is a platform component.
 └──────────────────┘         └─────────────┘         └──────────────────┘
 ```
 
-**File → ConversationState direction:** The adapter parses a design-review workspace
-into `ConversationState` (the P5 shared data model). Each issue heading becomes a
-`ConversationPoint`; each response becomes a `ThreadEntry` with role, round, and
-entry type. The parsed `ConversationState` is rendered via `ConversationRenderer` with
-a design-review-specific `ConversationRendererConfig` and pushed to DraftHouse's
-`WebSocketEventBus` as `DebateStreamEntry` payloads.
+**File → entries direction:** The adapter parses a design-review workspace into
+individual `DebateStreamEntry` objects — one per issue heading, one per response, one per
+confirmation. The entries are pushed to `WebSocketEventBus.pushDebateEntries(channelId,
+entries)`. Client-side panels and/or `DebateChannelProjection` fold these entries into
+`ConversationState` on the consumption side.
+
+The pipeline is:
+1. Parse response files → structured entries (entryType, agentRole, round, pointId, content)
+2. Convert each entry to `DebateStreamEntry` with correct metadata
+3. Push entries to `WebSocketEventBus`
+4. Consumer-side projection folds entries into `ConversationState`
+
+`ConversationState` is the shared data model — but it is the **output of consumption**,
+not an intermediate step in the push pipeline. The adapter produces entries; the consumer
+produces state.
 
 This is a **parser**, not a `ConversationProjection` subclass. `ConversationProjection`
 folds Qhorus `MessageView` instances incrementally — design-review files are not Qhorus
 messages, and replay is one-shot (parse all files), not incremental. A direct parser
-producing `ConversationState` is simpler and more correct.
+producing `DebateStreamEntry` objects is simpler and more correct.
 
 **Channel → File direction:** When a human adds a comment or flag in DraftHouse, the
 adapter writes it to a file in the workspace (e.g., `decisions/human-round-{n}.md`).
@@ -372,6 +397,19 @@ strings per P5). The resulting `ConversationPoint` status is derived by
 `VERIFIED` is a new string constant added to the protocol vocabulary via
 `ConversationProtocol` (P5 is explicitly extensible — domain entry types are dispatched
 via `handleDomain()` and `statusAfter()`, not hardcoded).
+
+**VERIFIED semantics:**
+- **Terminal status.** `VERIFIED` must be added to `resolvedStatuses` in
+  `ConversationRendererConfig` (currently `{"AGREED", "DECLINED"}`). A verified fix is
+  resolved — the review tracker should treat it as done, not open.
+- **Role constraint: reviewer-only.** VERIFIED means "I checked the diff and the fix is
+  correct." The implementor cannot verify their own fix — that's self-grading. This is a
+  semantic constraint documented here; enforcement (rejecting VERIFIED entries from
+  non-reviewer roles) can be added to `statusAfter()` or the adapter's entry construction.
+- **Distinct from AGREED.** AGREED means the reviewer accepts a rejection (the spec
+  doesn't change). VERIFIED means the reviewer confirms a fix is correct (the spec
+  changed and the change is good). Both are terminal, but they carry different information
+  about what happened: AGREED = "no change needed", VERIFIED = "change confirmed correct."
 
 ### 6.3 Document timeline mapping
 
@@ -507,15 +545,23 @@ Panel transitions are smooth — the same components rearrange, they don't reloa
 
 **Replay adapter.** Take a completed design-review workspace and render it in DraftHouse.
 
-1. A new MCP tool: `load_workspace(path)` → parses all response files into
-   `ConversationState` via a direct parser (not a `ConversationProjection` subclass —
-   see §6.1), creates a `DebateSession`, pushes entries via `WebSocketEventBus`
-2. No changes to design-review
-3. No live watching (that's step 2)
-4. No HIL (that's step 3)
-5. Proves the `ConversationState` mapping works end-to-end
-6. Gives a visual to react to — the first time anyone sees a design-review debate
-   rendered as an interactive UI with section highlighting and threaded issue tracking
+1. A new MCP tool: `load_workspace(path)` → parses all response files into individual
+   `DebateStreamEntry` objects via a direct parser (see §6.1), creates a `DebateSession`,
+   pushes entries via `WebSocketEventBus`
+2. **Document snapshot serving:** extract `commit_before` and `commit_after` from the
+   tracker or response metadata. Serve historical document content via `git show
+   <commit>:<path>` for each round's version. The diff panel needs the document at each
+   round's snapshot — not the current filesystem content — to show what the reviewer
+   actually saw. A new endpoint (e.g., `/api/file/at-commit?path=...&commit=...`) serves
+   this. `FileResource` currently reads only from the current filesystem
+   (`Files.readString(Paths.get(filePath))`); historical serving is additive.
+3. No changes to design-review
+4. No live watching (that's step 2)
+5. No HIL (that's step 3)
+6. Proves the entry-level parsing and document snapshot serving work end-to-end
+7. Gives a visual to react to — the first time anyone sees a design-review debate
+   rendered as an interactive UI with section highlighting and threaded issue tracking,
+   showing the document as it was at each round
 
 This is a weekend's work and delivers immediate value: every completed design-review
 becomes browsable in DraftHouse instead of requiring manual markdown file navigation.
