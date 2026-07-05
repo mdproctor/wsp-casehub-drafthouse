@@ -4,23 +4,25 @@
 
 ## Last Session
 
-Closed #90 — section highlight heading-match edge cases. Added `_normalizeLocation()` to `_findHeading`: strips quotes (ASCII + Unicode smart quotes), common LLM prefixes (Section:, Heading:, Under, In the), suffixes (section, heading, area, part), generalized separator splitting (/ - — and or), word-overlap fallback scoring. Removed diagnostic console.log from review tracker. 15 new parameterized E2E tests (45 total for section highlight). All 426 runtime tests pass.
+Closed #90 (section highlight heading-match edge cases) in previous session. This session: attempted to manually verify point selection works in the browser. DraftHouse server is running on port 9001 with an active debate session (`1b7c596c-41c0-46ec-a631-dfee9bc1c8ac`). Installed Playwright MCP (`@playwright/mcp@latest`) to enable browser inspection — requires session restart to connect.
 
-Build note: `casehub-ledger` HEAD has a breaking change (moved `LedgerEntry` from `runtime.model` to `api.model`) that qhorus hasn't absorbed. Restored the June 30 jar to unblock. Use `-nsu` flag on drafthouse builds to avoid re-pulling broken SNAPSHOT, or rebuild ledger from commit `aecf98e`.
+Build note: `casehub-ledger` HEAD has a breaking change (moved `LedgerEntry` from `runtime.model` to `api.model`) that qhorus hasn't absorbed. Use `-nsu` flag on drafthouse builds to avoid re-pulling broken SNAPSHOT, or rebuild ledger from commit `aecf98e`.
 
 ## Immediate Next Step
 
+Verify point selection works in the browser using Playwright MCP. Server is already running on port 9001 with a debate session. Navigate to:
+
 ```
-/work
+http://localhost:9001/?a=/Users/mdproctor/drafthouse-demo/sample-a.md&b=/Users/mdproctor/drafthouse-demo/sample-b.md&debate=1b7c596c-41c0-46ec-a631-dfee9bc1c8ac
 ```
 
-Pick up #89 (AgentProvider migration — `casehub-platform-agent` has shipped) or #53 (brainstorming UI).
+Use `browser_snapshot` to inspect the UI, click review points in the review tracker panel, and confirm section highlighting activates on the diff panel.
 
 ## What's Left
 
 | # | Title | Scale | Complexity | Blocked by | Blocks | Notes |
 |---|-------|-------|------------|------------|--------|-------|
-| #89 | Migrate from LangChain4j ChatModel to platform AgentProvider | M | Med | — | — | `casehub-platform-agent` shipped; `ClaudeAgentSdkDebateAgentProvider` stub ready |
+| #89 | Migrate from LangChain4j ChatModel to platform AgentProvider | M | Med | — | — | `casehub-platform-agent` shipped; stub ready |
 | #84 | Brainstorming UI on casehub-pages (epic) | L | High | — | #53 | #75 done; #53 still open |
 | #53 | Brainstorming UI — richer option exploration | L | High | #84 (epic) | — | Needs design before code |
 | #72 | Review pipeline orchestration | L | High | — | — | Design issue |
@@ -34,4 +36,5 @@ Pick up #89 (AgentProvider migration — `casehub-platform-agent` has shipped) o
 |---|---|
 | Architecture record | `ARC42STORIES.MD` |
 | GitHub | `casehubio/drafthouse` |
-| Ledger breakage | casehub-ledger HEAD moved `LedgerEntry` to api module; qhorus compile fails against it. Compatible jar: commit `aecf98e` or cached `casehub-ledger-0.2-20260630.090012-236.jar` |
+| Playwright MCP | installed via `claude mcp add playwright -- npx @playwright/mcp@latest` — project-local config |
+| Ledger breakage | casehub-ledger HEAD moved `LedgerEntry` to api module; qhorus compile fails. Compatible jar: commit `aecf98e` |
