@@ -164,15 +164,20 @@ Within each round, entries are emitted in this sequence:
    - neither (still open) → entryType=DISPUTE, content includes reason
 4. **MEMO** — assumptions and settled decisions, role=REV, round=N
 
-5. **DEFERRED** — one per issue where `tracker.md` terminal status is DEFERRED (auto-escalated
-   after 2 contested rounds), role=REV. The round is derived from the last
-   `ParsedConfirmation` for that issueId where `resolved=false && accepted=false` — this
-   is the confirmation round that triggered auto-escalation. Emitted after all conversation
+5. **DEFERRED** — one per issue where `tracker.md` terminal status is DEFERRED, role=REV.
+   Round derivation: find the last `ParsedConfirmation` for that issueId where
+   `resolved=false && accepted=false` — this is the confirmation round that triggered
+   auto-escalation. **Fallback for explicit deferral:** if no matching confirmation exists
+   (issue deferred via `OPEN → DEFERRED` without ever being contested), use the round the
+   issue was raised in (`ParsedIssue` belonging round). Emitted after all conversation
    entries for that point, so the projection fold produces the correct terminal status.
 6. **Evidence MEMO** — one per issue where `tracker.md` has a non-null `evidence` field
-   (spec commit hashes). Emitted as MEMO with role=REV, round=1, content prefixed with
-   the issueId (e.g. `"R1-02: spec commit abc123 → def456"`). This fulfils issue #95's
-   requirement to read evidence from tracker.md.
+   (spec commit hashes). Emitted as MEMO with role=REV, content prefixed with the issueId
+   (e.g. `"R1-02: spec commit abc123 → def456"`). Round derivation: find the
+   `ParsedResponse` with status=FIXED for that issueId — its round is when the spec was
+   changed. If no FIXED response exists (evidence recorded for other reasons), fall back
+   to the round the issue was raised in. This fulfils issue #95's requirement to read
+   evidence from tracker.md.
 
 Each entry is encoded with `ChannelMessageMeta.encode(DebateProtocol.META_SENTINEL, meta, content)`
 and dispatched via `MessageService.dispatch()` with `MessageDispatch.builder()`. The builder
