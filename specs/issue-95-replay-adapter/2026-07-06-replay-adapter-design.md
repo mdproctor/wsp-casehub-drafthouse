@@ -12,8 +12,9 @@ projects it as debate entries into a DraftHouse `DebateSession` via Qhorus chann
 dispatch. The adapter parses workspace files (reviewer-N.md, implementor-N.md,
 tracker.md) using regex patterns ported from design-review's `parser.py`, translates
 each extracted element into a `DHMETA:`-encoded channel message, and dispatches through
-`ChannelService`. The existing `DebateChannelProjection` folds entries into
-`ConversationState`. Browser panels render via WebSocket push.
+`MessageService.dispatch()` with `MessageDispatch.builder()`. The existing
+`DebateChannelProjection` folds entries into `ConversationState`. Browser panels render
+via WebSocket push.
 
 ## Architecture Decision: Channel Dispatch
 
@@ -42,8 +43,8 @@ returns records. Testable in isolation with fixture files.
 
 Orchestrator. Takes the parser's output, creates a `DebateSession`, creates a Qhorus
 channel, encodes each parsed element as a `DHMETA:`-prefixed channel message, dispatches
-via `ChannelService` in the correct emission order. Batch-pushes entries to WebSocket
-after all dispatches complete.
+via `MessageService.dispatch()` with `MessageDispatch.builder()` in the correct emission
+order. Batch-pushes entries to WebSocket after all dispatches complete.
 
 **Location:** `server/runtime/src/main/java/io/casehub/drafthouse/debate/WorkspaceReplayAdapter.java`
 
@@ -61,7 +62,8 @@ record WorkspaceParseResult(
     String specPath,              // from .spec-path
     String mode,                  // from .mode (e.g. "spec-review")
     String contextNote,           // from context.md (nullable)
-    List<ParsedRound> rounds      // ordered by round number
+    List<ParsedRound> rounds,     // ordered by round number
+    List<ParsedTrackerEntry> trackerStatuses  // terminal statuses from tracker.md
 )
 
 record ParsedRound(
@@ -93,6 +95,13 @@ record ParsedConfirmation(
 )
 
 record ParsedSettledDecision(String text, String fromIssue)
+
+record ParsedTrackerEntry(
+    String issueId,
+    String title,
+    String status,                // OPEN, ADDRESSED, VERIFIED, ACCEPTED, CONTESTED, DEFERRED
+    String evidence               // nullable — commit hash or other evidence text
+)
 ```
 
 **Round grouping:** The parser discovers rounds by scanning `responses/` for
@@ -140,22 +149,55 @@ Within each round, entries are emitted in this sequence:
    - neither (still open) → entryType=DISPUTE, content includes reason
 4. **MEMO** — assumptions and settled decisions, role=REV, round=N
 
+5. **DEFERRED** — one per issue where `tracker.md` terminal status is DEFERRED (auto-escalated
+   after 2 contested rounds), role=REV, round=last-round. Emitted after all conversation
+   entries for that point, so the projection fold produces the correct terminal status.
+
 Each entry is encoded with `ChannelMessageMeta.encode(DebateProtocol.META_SENTINEL, meta, content)`
-and dispatched via `ChannelService.dispatch()`.
+and dispatched via `MessageService.dispatch()` with `MessageDispatch.builder()`. The builder
+sets `channelId`, `sender` (from registered instance), `type` (MessageType), `content`
+(encoded), `correlationId` (pointId), and `actorType(ActorType.AGENT)`.
+
+**`inReplyTo` linkage:** Response entries (QUALIFY, COUNTER, FLAG_HUMAN, VERIFIED, DISPUTE,
+AGREE, DEFERRED) set `inReplyTo` to the database message ID of the corresponding RAISE
+dispatch. After each RAISE dispatch, the adapter queries `messageService.findByCorrelationId(pointId)`
+to obtain the persisted message ID for use in subsequent response dispatches for that point.
+This maintains correct Qhorus commitment chain semantics.
 
 **Batch push:** All entries are dispatched to the channel first (no per-message WebSocket
-push). After all dispatches complete, the full entry list is pushed once via
-`WebSocketEventBus.pushDebateEntries()`.
+push). After all dispatches complete, the adapter queries all messages from the channel
+via `MessageService`, converts each to `DebateStreamEntry.from(Message)`, and pushes the
+full list once via `WebSocketEventBus.pushDebateEntries()`. This uses the existing factory
+method — no second construction path.
+
+**Error recovery:** The entire dispatch sequence is wrapped in a try/catch. On failure,
+cleanup mirrors `start_debate`: deregister instances, remove session from registry, delete
+channel (which removes all partially-dispatched messages). The idempotency check on retry
+will not find the cleaned-up session. Error is returned as `"error: ..."` per
+PP-20260604-6e8d5d.
 
 ## DraftHouse Changes: VERIFIED and DEFERRED
 
 ### Server-side — DebateChannelProjection
 
-- `statusAfter("VERIFIED")` → `"VERIFIED"`
-- `statusAfter("DEFERRED")` → `"DEFERRED"`
-- Add `"VERIFIED"` and `"DEFERRED"` to `resolvedStatuses` in `ConversationRendererConfig`
-- Status emojis: VERIFIED=✅, DEFERRED=⏸
-- Entry type labels: VERIFIED=verified, DEFERRED=deferred
+`DebateChannelProjection` extends `ConversationProjection` (from `casehub-blocks`).
+Infrastructure entry types (MEMO, SUB_TASK_*, FLAG_HUMAN, RESTART_CONTEXT) are handled
+by the base class automatically. Domain entry types are dispatched via the `handleDomain()`
+→ `statusAfter()` hook path. The base class enforces PP-20260610-a47ef5 (apply must not
+throw) — `statusAfter()` returning `null` for unknown types is the defensive contract.
+
+Changes to the `statusAfter()` hook override:
+- `case "VERIFIED" -> "VERIFIED";`
+- `case "DEFERRED" -> "DEFERRED";`
+
+Changes to `DEBATE_CONFIG` (`ConversationRendererConfig`):
+- `resolvedStatuses`: add `"VERIFIED"`, `"DEFERRED"`
+- `statusEmoji`: add `"VERIFIED"` → `"✅"`, `"DEFERRED"` → `"⏸"`
+- `entryTypeLabel`: add `"VERIFIED"` → `"verified"`, `"DEFERRED"` → `"deferred"`
+
+Note: QUALIFY → "qualified" is an intentional semantic mapping. In the debate model,
+QUALIFY means "implementor provides a qualified (conditioned) response" — this is the
+correct semantic for what design-review calls FIXED.
 
 ### API — EntryType enum
 
@@ -170,9 +212,9 @@ push). After all dispatches complete, the full entry list is pushed once via
 
 ### Not in scope
 
-- No commit evidence fields — commit SHAs go in MEMO content for now
-- No auto-escalation logic — DEFERRED is emitted by the adapter based on source data,
-  not computed by the projection
+- No commit evidence fields — commit SHAs from tracker.md go in MEMO content for now
+- No auto-escalation logic in the projection — DEFERRED is emitted by the adapter from
+  `tracker.md` terminal statuses, not computed by the projection state machine
 
 ## MCP Tool and Session Setup
 
@@ -182,15 +224,27 @@ String loadWorkspace(String workspacePath)
 ```
 
 **Session creation flow:**
-1. Derive `debateSessionId` from workspace directory name
-2. Check idempotency — if session with same ID already exists, return its summary
-3. Create Qhorus channel with slug `"replay-{debateSessionId}"` (letter-leading per GE-20260607-a4d78a)
-4. Create `DebateSession` with channel ID and session ID
-5. Register REV and IMP participants
-6. Read `.spec-path`, add spec as primary document
-7. Call `WorkspaceReplayAdapter.replay()` — parse, dispatch, batch push
-8. Register session in `DebateSessionRegistryImpl`
-9. Broadcast `session-created` event
+1. Extract workspace directory name from path (e.g. `"websocket-tests-20260704-190851"`)
+2. Compute deterministic channel name: `"drafthouse/debate/replay-" + workspaceDirName`
+   (letter-leading per GE-20260607-a4d78a; `drafthouse/debate/` prefix required for
+   `DebateChannelBackendFactory` routing — channels without this prefix fall through to
+   `ReviewerChannelBackendFactory` which attaches the LLM reviewer backend)
+3. Check idempotency — search active sessions in registry for matching channel name.
+   If found, return existing session summary
+4. Create Qhorus channel with the deterministic name
+5. Set `debateSessionId = channel.id().toString()` (UUID — required by `resolveSession()`
+   which calls `UUID.fromString()`)
+6. Create `DebateSession` with channel ID and session ID
+7. Read `.spec-path`, add spec as primary document
+8. `registry.put(session)` — before `channelGateway.initChannel()` (same ordering
+   constraint as `start_debate` — factory reads from registry during synchronous CDI event)
+9. Register REV and IMP instances via `sender(session, AgentType.REV)` and
+   `sender(session, AgentType.IMP)` — required before `MessageService.dispatch()` which
+   validates the sender ID against registered instances
+10. `channelGateway.initChannel(channel.id(), new ChannelRef(...))` — triggers
+    `DebateChannelBackendFactory` registration
+11. Call `WorkspaceReplayAdapter.replay()` — parse, dispatch, batch push
+12. Broadcast `session-created` event
 
 **Browser connection:** The `session-created` broadcast triggers auto-connect via existing
 WebSocket subscription. Manual connection via `?debate={debateSessionId}`.
