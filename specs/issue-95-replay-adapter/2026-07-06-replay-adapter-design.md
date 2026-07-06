@@ -130,6 +130,21 @@ adapter adds the prefix when setting `location`.
 Plus `_KNOWN_SECTIONS` — a `Set<String>` of 27 heading names to skip during issue extraction
 (e.g. "assumptions", "settled decisions", "summary", "overview", "final assessment").
 
+### Tracker.md patterns
+
+Tracker.md uses a structured heading + bullet format (from `tracker.py.render()`).
+Parsed via line-by-line extraction rather than multiline regexes:
+
+| Name | Pattern | Purpose |
+|------|---------|---------|
+| `TRACKER_HEADING_RE` | `^###\s+(R\d+-\d+):\s+(.+)$` | Issue ID + title from heading |
+| `TRACKER_STATUS_RE` | `^-\s+\*\*Status:\*\*\s+(\w+)` | Terminal status value |
+| `TRACKER_EVIDENCE_RE` | `^-\s+\*\*Spec commit:\*\*\s*(.*)` | Commit hash evidence |
+
+The parser reads tracker.md top-to-bottom, emitting a `ParsedTrackerEntry` each time
+a new heading is encountered (flushing the previous entry). Status and evidence fields
+are populated from the bullets under each heading.
+
 ## Entry Emission Order
 
 Within each round, entries are emitted in this sequence:
@@ -150,25 +165,48 @@ Within each round, entries are emitted in this sequence:
 4. **MEMO** — assumptions and settled decisions, role=REV, round=N
 
 5. **DEFERRED** — one per issue where `tracker.md` terminal status is DEFERRED (auto-escalated
-   after 2 contested rounds), role=REV, round=last-round. Emitted after all conversation
+   after 2 contested rounds), role=REV. The round is derived from the last
+   `ParsedConfirmation` for that issueId where `resolved=false && accepted=false` — this
+   is the confirmation round that triggered auto-escalation. Emitted after all conversation
    entries for that point, so the projection fold produces the correct terminal status.
+6. **Evidence MEMO** — one per issue where `tracker.md` has a non-null `evidence` field
+   (spec commit hashes). Emitted as MEMO with role=REV, round=1, content prefixed with
+   the issueId (e.g. `"R1-02: spec commit abc123 → def456"`). This fulfils issue #95's
+   requirement to read evidence from tracker.md.
 
 Each entry is encoded with `ChannelMessageMeta.encode(DebateProtocol.META_SENTINEL, meta, content)`
 and dispatched via `MessageService.dispatch()` with `MessageDispatch.builder()`. The builder
 sets `channelId`, `sender` (from registered instance), `type` (MessageType), `content`
 (encoded), `correlationId` (pointId), and `actorType(ActorType.AGENT)`.
 
+**MessageType mapping:** Each entry type maps to a Qhorus `MessageType` for correct
+commitment chain handling:
+
+| Entry type | MessageType | Rationale |
+|-----------|-------------|-----------|
+| RAISE | `QUERY` | Opens a commitment |
+| QUALIFY | `RESPONSE` | Conditioned response (non-terminal) |
+| COUNTER | `RESPONSE` | Rejection response (non-terminal) |
+| AGREE | `DONE` | Fulfils the commitment |
+| DISPUTE | `DECLINE` | Declines resolution |
+| FLAG_HUMAN | `HANDOFF` | Delegates to human |
+| VERIFIED | `DONE` | Confirms resolution (like AGREE) |
+| DEFERRED | `DECLINE` | Declines further resolution (like DISPUTE) |
+| MEMO | `STATUS` | Advisory, no commitment effect |
+
 **`inReplyTo` linkage:** Response entries (QUALIFY, COUNTER, FLAG_HUMAN, VERIFIED, DISPUTE,
 AGREE, DEFERRED) set `inReplyTo` to the database message ID of the corresponding RAISE
-dispatch. After each RAISE dispatch, the adapter queries `messageService.findByCorrelationId(pointId)`
-to obtain the persisted message ID for use in subsequent response dispatches for that point.
-This maintains correct Qhorus commitment chain semantics.
+dispatch. `MessageService.dispatch()` returns `DispatchResult`, whose `messageId` field
+provides the persisted ID directly — no follow-up query needed. The adapter captures the
+RAISE `DispatchResult.messageId()` and reuses it for all subsequent response dispatches
+for that point. This maintains correct Qhorus commitment chain semantics.
 
 **Batch push:** All entries are dispatched to the channel first (no per-message WebSocket
-push). After all dispatches complete, the adapter queries all messages from the channel
-via `MessageService`, converts each to `DebateStreamEntry.from(Message)`, and pushes the
-full list once via `WebSocketEventBus.pushDebateEntries()`. This uses the existing factory
-method — no second construction path.
+push). After all dispatches complete, the adapter calls
+`messageService.pollAfter(channelId, 0L, Integer.MAX_VALUE)` to retrieve all persisted
+messages, converts each to `DebateStreamEntry.from(Message)`, and pushes the full list
+once via `WebSocketEventBus.pushDebateEntries()`. This uses the existing factory method
+— no second construction path.
 
 **Error recovery:** The entire dispatch sequence is wrapped in a try/catch. On failure,
 cleanup mirrors `start_debate`: deregister instances, remove session from registry, delete
@@ -212,7 +250,8 @@ correct semantic for what design-review calls FIXED.
 
 ### Not in scope
 
-- No commit evidence fields — commit SHAs from tracker.md go in MEMO content for now
+- No structured commit evidence fields on `DebateStreamEntry` — commit SHAs from
+  tracker.md are emitted as MEMO content (step 6 of Entry Emission Order)
 - No auto-escalation logic in the projection — DEFERRED is emitted by the adapter from
   `tracker.md` terminal statuses, not computed by the projection state machine
 
@@ -279,6 +318,7 @@ Tests:
 - Section ref extraction (both `§N.N` and `Section N.N` forms)
 - Signal extraction from last 10 lines
 - Assumption and settled decision extraction
+- Tracker.md parsing: status extraction, evidence extraction, missing fields
 - Edge cases: existing issue IDs skipped, empty body handling
 
 ### Integration — WorkspaceReplayAdapterTest
