@@ -17,6 +17,10 @@ Built a replay adapter that reads completed design-review workspace directories 
 
 **Design-reviewed:** 3 rounds, 23 issues, 19 verified, 2 accepted, $16.15
 
+## Immediate Next Step
+
+**#96 — design-review structured output (JSONL sidecar).** This is the highest-leverage next issue: it simplifies #99 (live watching reads JSONL instead of re-parsing markdown) and makes the replay adapter more robust. Note: #96 is a soredium change (Python, `~/.claude/skills/design-review/`), not a drafthouse change. The DraftHouse side is small — add a JSONL-first branch to `WorkspaceReplayAdapter` that falls back to `WorkspaceParser` for old workspaces.
+
 ## What's Next
 
 | # | Title | Scale | Complexity | Blocked by | Notes |
