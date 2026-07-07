@@ -1,5 +1,6 @@
-# Branch Closed: issue-94-data-model-mapping
+# Epic Closed
 
-**Date:** 2026-07-06
-**Issues:** 94
-**Status:** merged to main
+**Branch:** issue-98-document-timeline
+**Date:** 2026-07-07
+**Issues:** #98
+**Landed as:** 1ec440c on main
