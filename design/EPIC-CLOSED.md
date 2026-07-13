@@ -1,5 +1,5 @@
-# Branch Closed: issue-94-data-model-mapping
+# Branch Closed: issue-105-fix-build-break-and-cleanup
 
-**Date:** 2026-07-06
-**Issues:** 94
+**Date:** 2026-07-13
+**Issues:** 105,102
 **Status:** merged to main
