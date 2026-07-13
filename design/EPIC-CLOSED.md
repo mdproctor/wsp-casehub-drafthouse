@@ -1,5 +1,5 @@
-# Branch Closed: issue-94-data-model-mapping
+# Branch Closed: issue-96-design-review-structured
 
-**Date:** 2026-07-06
-**Issues:** 94
+**Date:** 2026-07-13
+**Issues:** 96
 **Status:** merged to main
