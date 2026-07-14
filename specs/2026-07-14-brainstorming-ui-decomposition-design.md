@@ -127,7 +127,7 @@ manages this via a PTY-over-WebSocket architecture:
 
 | Tool | Purpose | Emits event |
 |------|---------|-------------|
-| `start_brainstorm` | Create session | `brainstorm-started` |
+| `start_brainstorm` | Create session | broadcast `brainstorm-session-created` + session-scoped `brainstorm-started` |
 | `present_options` | Show 2-4 options with tradeoffs | `brainstorm-options` |
 | `update_option` | Enrich an option after exploration | `brainstorm-option-updated` |
 | `set_recommendation` | Mark one option as recommended | `brainstorm-options` (updated) |
@@ -146,6 +146,20 @@ delta events are needed.
 Brainstorm events are delivered via the existing `WebSocketEventBus` using
 session-scoped topics, following the established debate session pattern:
 
+- **Session discovery:** `start_brainstorm` calls
+  `eventBus.broadcast("brainstorm-session-created", { sessionId })` — a
+  non-scoped broadcast to ALL WebSocket connections, regardless of topic
+  subscriptions. This follows the existing debate pattern
+  (`broadcast("session-created", ...)` in `DebateMcpTools.startDebate()`).
+  The brainstorm-mode `index.ts` listens for this event and subscribes to
+  the session-scoped topic:
+  ```typescript
+  if (topic === "brainstorm-session-created" && !currentBrainstormId) {
+    currentBrainstormId = payload.sessionId;
+    wsSource.subscribe("brainstorm:" + payload.sessionId, ...);
+  }
+  ```
+  The catch-up mechanism then pushes current state to the new subscriber.
 - **Topic pattern:** `"brainstorm:" + sessionId`
 - **Registration:** `watchBrainstorm(conn, sessionId)` /
   `unwatchBrainstorm(conn, sessionId)` on `WebSocketEventBus` (analogous to
