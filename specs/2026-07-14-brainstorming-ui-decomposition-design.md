@@ -10,12 +10,11 @@ UI — interactive option cards, exploration, challenge mode, convergence visual
 This spec decomposes that vision into six incremental slices, each independently
 deliverable.
 
-DraftHouse and Claudony both need an embedded CLI experience. xterm.js (`@xterm/xterm`)
-must be introduced as a new dependency — it is not currently in the stack. The terminal
-component starts in DraftHouse (consistent with the Lit migration spec's convention
-that components live in DraftHouse before promotion to blocks-ui) and will be promoted
-to `@casehubio/blocks-ui-terminal` once blocks-ui component hosting conventions are
-validated by existing panel promotions.
+DraftHouse and Claudony both need an embedded CLI experience.
+`@casehubio/pages-component-terminal` already provides an xterm.js Web Component in
+the casehub-pages stack — it wraps `@xterm/xterm` v6 with WebSocket connectivity,
+auto-fit, reconnect logic, and the `ConfigurablePanel` interface. DraftHouse adds
+this as a dependency and builds only the server-side PTY endpoint.
 
 ## Architecture
 
@@ -34,9 +33,9 @@ Quarkus Server
   │
   ▼
 Browser (pages-event bus + terminal WebSocket)
-  ├── <terminal-panel>          ← xterm.js component (DraftHouse panel)
-  ├── <brainstorm-panel>        ← option cards, actions
-  │     └── dispatches terminal-inject event → terminal-panel
+  ├── <pages-component-terminal> ← existing pages terminal component
+  ├── <brainstorm-panel>         ← option cards, actions
+  │     └── dispatches terminal-inject event → terminal
   └── <brainstorm-convergence>  ← decision timeline
 ```
 
@@ -188,17 +187,26 @@ session-scoped topics, following the established debate session pattern:
 
 ## Panel Behaviour
 
-### `<terminal-panel>`
+### `<pages-component-terminal>` (existing)
 
-- Wraps xterm.js (new dependency: `@xterm/xterm`, `@xterm/addon-fit`)
-- Connects to the terminal WebSocket endpoint (`/api/terminal`)
-- Exposes `configure({ command?, env? })` to specify the subprocess command
-- Exposes `injectInput(text: string)` that writes to the terminal's stdin
-  via the terminal WebSocket connection
-- Listens for `terminal-inject` custom events on `document` to receive
-  text injection requests from other panels
-- Standard DraftHouse Lit panel — no app-specific logic beyond xterm.js hosting
-- Registered via `registerPanel("terminal", "terminal-panel")`
+Uses `@casehubio/pages-component-terminal` from the casehub-pages stack:
+
+- Wraps xterm.js v6 with `@xterm/addon-fit`
+- Connects to a WebSocket URL via `configure({ wsUrl, fontSize?, theme? })`
+- Exposes `sendInput(text: string)` for programmatic input injection
+- Auto-reconnect with exponential backoff
+- Dispatches `pages-event` with topics: `terminal-ready`, `terminal-connected`,
+  `terminal-disconnected`, `terminal-resize`
+- Registered as `<pages-component-terminal>` custom element
+
+**DraftHouse wiring:** Import the component, register it via
+`registerPanel("terminal", "pages-component-terminal")`, and configure with
+`wsUrl: "ws://localhost:9001/api/terminal?cols={cols}&rows={rows}"`.
+
+**Terminal injection:** The brainstorm panel dispatches `terminal-inject`
+custom events on `document`. DraftHouse `index.ts` listens for these and
+calls `sendInput()` on the terminal element — the bridge lives in the
+workbench, not in the component.
 
 ### `<brainstorm-panel>`
 
@@ -288,20 +296,17 @@ behaviour when no watchers are registered.
 
 ## Slice Decomposition
 
-### Slice 1: Terminal component
+### Slice 1: Terminal endpoint + wiring
 
-xterm.js terminal panel in DraftHouse. Connects to a server-side
-PTY-over-WebSocket endpoint. Hosts a CLI session. Includes both the
-frontend panel (`<terminal-panel>`) and the server-side `TerminalEndpoint`.
+Server-side PTY-over-WebSocket endpoint (`TerminalEndpoint`) using pty4j.
+Client side uses the existing `@casehubio/pages-component-terminal` — add
+it as a dependency, register the panel, wire into brainstorming layout.
 
-Promotion to `@casehubio/blocks-ui-terminal` for cross-app reuse (Claudony)
-is future work, once blocks-ui component conventions are validated.
-
-- Scale: L · Complexity: High
+- Scale: M · Complexity: Med
 - Dependencies: none
 - Repo: casehub-drafthouse
-- New dependencies: `@xterm/xterm`, `@xterm/addon-fit`,
-  `org.jetbrains.pty4j:pty4j` (not in CaseHub parent BOM — explicit version)
+- New dependencies: `@casehubio/pages-component-terminal` (webui),
+  `org.jetbrains.pty4j:pty4j` (server, not in CaseHub parent BOM)
 
 ### Slice 2: Brainstorming MCP tools + server events
 
@@ -373,7 +378,7 @@ Each slice specifies its testing requirements:
 
 | Slice | Tests |
 |-------|-------|
-| Slice 1 | Unit tests for terminal WebSocket framing; `@QuarkusTest` integration test for PTY lifecycle (spawn, write, read, kill) |
+| Slice 1 | `@QuarkusTest` integration test for PTY WebSocket endpoint lifecycle (spawn, write, read, kill); webui wiring verified by Slice 3 E2E |
 | Slice 2 | Unit tests for `BrainstormMcpTools` following `DebateMcpToolsTest` pattern; `BrainstormSessionRegistry` tests following `DebateSessionRegistryTest` |
 | Slice 3 | Panel rendering tests: renders cards from mock events, visual state transitions |
 | Slice 4 | E2E (Playwright): click action button → verify `terminal-inject` event dispatched; integration with terminal panel |
@@ -390,6 +395,7 @@ This spec introduces capabilities that require ARC42STORIES.MD updates:
   MCP event bridge, panel rendering
 - **§5 Building Block View:** New components: `TerminalEndpoint`,
   `BrainstormMcpTools`, `BrainstormSessionRegistry`, brainstorming panels
-- **§7 Deployment View:** Note pty4j as first native dependency; add
-  target platform matrix (macOS aarch64/x86_64, Linux aarch64/x86_64)
+- **§7 Deployment View:** Note pty4j as first native dependency (client-side
+  terminal component is `@casehubio/pages-component-terminal` from pages stack);
+  add target platform matrix (macOS aarch64/x86_64, Linux aarch64/x86_64)
 - **New Journey: Brainstorming** — alongside Comparison and Review
