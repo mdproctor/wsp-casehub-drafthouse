@@ -22,8 +22,8 @@ validated by existing panel promotions.
 ```
 Brainstorming Skill (CLI)
   │
-  ├── calls MCP tools: present_options, update_option,
-  │   set_recommendation, mark_eliminated, mark_selected
+  ├── calls MCP tools: start_brainstorm, present_options, update_option,
+  │   set_recommendation, mark_eliminated, mark_selected, end_brainstorm
   │
   ▼
 Quarkus Server
@@ -66,6 +66,23 @@ manages this via a PTY-over-WebSocket architecture:
 
 4. **Lifecycle:** PTY process is created on WebSocket connect and killed on
    disconnect. No process pooling — one PTY per connection.
+
+5. **Bootstrap sequence:** The terminal spawns a shell (the user's `$SHELL`
+   or `/bin/bash`), not Claude Code directly. The user starts Claude Code
+   within that shell. This makes the DraftHouse → PTY → Claude Code → MCP →
+   DraftHouse dependency chain user-mediated rather than automatic. MCP
+   server discovery relies on the user's existing Claude Code MCP configuration.
+   Bootstrap ordering is naturally satisfied because DraftHouse (including its
+   MCP server extension) is already running before any terminal WebSocket
+   connection is established.
+
+6. **Native dependency:** pty4j (`org.jetbrains.pty4j:pty4j`) is a JNA-based
+   library bundling platform-specific native binaries for PTY management.
+   This is DraftHouse's first native dependency — it changes the deployment
+   constraint from "pure JVM" to "JVM + platform-native PTY." Target
+   platforms: macOS (aarch64, x86_64) and Linux (aarch64, x86_64). pty4j is
+   not in the CaseHub parent BOM — the dependency must be added to
+   `server/runtime/pom.xml` with an explicit version.
 
 ## Data Model
 
@@ -133,6 +150,14 @@ session-scoped topics, following the established debate session pattern:
 - **Client subscription:** `index.ts` subscribes to the brainstorm topic via
   `wsSource.subscribe("brainstorm:" + sessionId, ...)` when entering
   brainstorming mode
+- **WebSocket handler:** `DebateWebSocket` (the `/api/ws` handler) must be
+  updated to handle `brainstorm:` prefix subscriptions in `handleSubscribe()`
+  and `handleListen()`. Currently only `debate:` and `file:` prefixes are
+  handled — any other prefix falls through to a bare `ack` without calling
+  `eventBus.watchBrainstorm()`, causing silent event delivery failure. The
+  handler should call `eventBus.watchBrainstorm(connection, sessionId)` on
+  subscribe and `eventBus.unwatchBrainstorm(connection, sessionId)` on
+  unsubscribe.
 
 ## Panel Behaviour
 
@@ -215,7 +240,11 @@ visibility.
 
 The brainstorming skill adds MCP tool calls at existing decision points. The
 skill continues to render markdown in the terminal — MCP calls are additive.
-If the brainstorm panel isn't visible, the tools are no-ops.
+The MCP tools always execute and update server-side `BrainstormSession` state
+regardless of whether a browser is connected. If no WebSocket connection
+watches the `"brainstorm:" + sessionId` topic, events are simply not
+delivered — the tools succeed silently, matching the existing `pushMetadata`
+behaviour when no watchers are registered.
 
 **At "Propose 2-3 approaches":**
 - `start_brainstorm` → creates session
@@ -244,7 +273,8 @@ is future work, once blocks-ui component conventions are validated.
 - Scale: L · Complexity: High
 - Dependencies: none
 - Repo: casehub-drafthouse
-- New dependencies: `@xterm/xterm`, `@xterm/addon-fit`, `pty4j`
+- New dependencies: `@xterm/xterm`, `@xterm/addon-fit`,
+  `org.jetbrains.pty4j:pty4j` (not in CaseHub parent BOM — explicit version)
 
 ### Slice 2: Brainstorming MCP tools + server events
 
@@ -264,7 +294,9 @@ side-by-side with visual status (recommended, explored, eliminated, selected).
 Read-only — user interacts via terminal.
 
 - Scale: S · Complexity: Low
-- Dependencies: Slice 2 (event topics), layout mode support
+- Dependencies: Slice 2 (event topics)
+- Includes: `mode=brainstorm` URL parameter handling and brainstorming
+  layout tree in `index.ts` (from §Layout)
 
 ### Slice 4: Interactive panel — terminal injection
 
@@ -331,4 +363,6 @@ This spec introduces capabilities that require ARC42STORIES.MD updates:
   MCP event bridge, panel rendering
 - **§5 Building Block View:** New components: `TerminalEndpoint`,
   `BrainstormMcpTools`, `BrainstormSessionRegistry`, brainstorming panels
+- **§7 Deployment View:** Note pty4j as first native dependency; add
+  target platform matrix (macOS aarch64/x86_64, Linux aarch64/x86_64)
 - **New Journey: Brainstorming** — alongside Comparison and Review
