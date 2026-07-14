@@ -106,9 +106,14 @@ manages this via a PTY-over-WebSocket architecture:
 - **Transitions:**
   - `mark_selected` → state becomes `CONVERGED`
   - `end_brainstorm` without selection → state becomes `ABANDONED`
-- **Cleanup:** When the terminal WebSocket disconnects, any `ACTIVE` brainstorm
-  session associated with that connection is transitioned to `ABANDONED` and
-  removed from the registry after a configurable grace period (default: 5 minutes).
+- **Cleanup:** Inactivity-based timeout. Each MCP tool call on a session resets
+  an inactivity timer (configurable, default: 10 minutes). When the timer fires
+  on an `ACTIVE` session, it transitions to `ABANDONED` and is removed from the
+  registry. This avoids requiring cross-connection state — the terminal WebSocket,
+  MCP/SSE connection, and event bus WebSocket are independent channels with no
+  shared connection identity. The inactivity timer handles all cleanup cases:
+  normal end (`end_brainstorm`), user disconnect (no more MCP calls → timeout),
+  and abandoned sessions (same).
 
 ### BrainstormOption
 
@@ -158,6 +163,14 @@ session-scoped topics, following the established debate session pattern:
   handler should call `eventBus.watchBrainstorm(connection, sessionId)` on
   subscribe and `eventBus.unwatchBrainstorm(connection, sessionId)` on
   unsubscribe.
+- **Catch-up on subscribe:** When the `brainstorm:` subscription handler
+  registers a connection, it reads the current `BrainstormSession` from
+  `BrainstormSessionRegistry`. If the session exists and has options, it
+  pushes a `brainstorm-options` event with the current option set to the
+  newly subscribed connection (same event topic as live updates — the
+  panel does not distinguish catch-up from live). This follows the existing
+  `DebateWebSocket.sendCatchUp()` pattern that pushes accumulated debate
+  entries and context snapshots on new subscriptions.
 
 ## Panel Behaviour
 
