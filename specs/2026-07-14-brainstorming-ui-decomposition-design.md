@@ -36,7 +36,7 @@ Quarkus Server
 Browser (pages-event bus + terminal WebSocket)
   ├── <terminal-panel>          ← xterm.js component (DraftHouse panel)
   ├── <brainstorm-panel>        ← option cards, actions
-  │     └── dispatches brainstorm-inject event → terminal-panel
+  │     └── dispatches terminal-inject event → terminal-panel
   └── <brainstorm-convergence>  ← decision timeline
 ```
 
@@ -195,7 +195,7 @@ session-scoped topics, following the established debate session pattern:
 - Exposes `configure({ command?, env? })` to specify the subprocess command
 - Exposes `injectInput(text: string)` that writes to the terminal's stdin
   via the terminal WebSocket connection
-- Listens for `brainstorm-inject` custom events on `document` to receive
+- Listens for `terminal-inject` custom events on `document` to receive
   text injection requests from other panels
 - Standard DraftHouse Lit panel — no app-specific logic beyond xterm.js hosting
 - Registered via `registerPanel("terminal", "terminal-panel")`
@@ -212,7 +212,7 @@ session-scoped topics, following the established debate session pattern:
   - `ELIMINATED` — dimmed/strikethrough
   - `SELECTED` — prominent, others collapse
 - Action buttons (Slice 4): "Select", "Explore", "Challenge"
-  - Each dispatches a `brainstorm-inject` custom event on `document` with
+  - Each dispatches a `terminal-inject` custom event on `document` with
     `detail: { text: "select Option A\n" }` (natural language matching what
     the user would type)
   - The terminal panel listens for this event and calls `injectInput()`
@@ -328,7 +328,7 @@ Read-only — user interacts via terminal.
 ### Slice 4: Interactive panel — terminal injection
 
 Action buttons on cards: "Select", "Explore", "Challenge". Clicks dispatch
-`brainstorm-inject` custom events on `document`, which the terminal panel
+`terminal-inject` custom events on `document`, which the terminal panel
 handles by calling `injectInput()`.
 
 - Scale: S · Complexity: Med
@@ -376,7 +376,7 @@ Each slice specifies its testing requirements:
 | Slice 1 | Unit tests for terminal WebSocket framing; `@QuarkusTest` integration test for PTY lifecycle (spawn, write, read, kill) |
 | Slice 2 | Unit tests for `BrainstormMcpTools` following `DebateMcpToolsTest` pattern; `BrainstormSessionRegistry` tests following `DebateSessionRegistryTest` |
 | Slice 3 | Panel rendering tests: renders cards from mock events, visual state transitions |
-| Slice 4 | E2E (Playwright): click action button → verify `brainstorm-inject` event dispatched; integration with terminal panel |
+| Slice 4 | E2E (Playwright): click action button → verify `terminal-inject` event dispatched; integration with terminal panel |
 | Slice 5 | End-to-end test: brainstorming skill → MCP tool calls → events received by panel |
 | Slice 6 | Unit tests: accumulate snapshots → verify derived transitions; rendering tests |
 
