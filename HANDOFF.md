@@ -1,29 +1,29 @@
-# Handover — 2026-07-14
+# Handover — 2026-07-17
 
-**Branch:** `main` (issue-53-brainstorming-ui-slices-1-2 closed)
+**Branch:** `main` (CI fix — #107 closed)
 
 ## What Happened This Session
 
-Designed and implemented brainstorming UI slices 1-2 for #53. Ran a full
-adversarial design review ($25, 8 rounds, 24 issues — all resolved). Then
-implemented both slices TDD-first.
+Fixed CI which had been red since July 10. Root causes spanned two repos:
 
-**Slice 2:** BrainstormSession/BrainstormOption domain model, BrainstormSessionRegistry
-(in-memory), BrainstormMcpTools (7 MCP tools: start_brainstorm, present_options,
-update_option, set_recommendation, mark_eliminated, mark_selected, end_brainstorm),
-WebSocketEventBus brainstorm methods, DebateWebSocket brainstorm: prefix handling
-with catch-up.
+**casehub-pages** (5 PRs merged: #194, #197, #198, #200, #202): Added Maven
+CI/publish workflow for backend modules, published `casehub-pages-push` to
+GitHub Packages, bumped npm package versions to 0.2.3/0.2.1.
 
-**Slice 1:** TerminalEndpoint (PTY-over-WebSocket via pty4j 0.13.11 at /api/terminal),
-pages-component-terminal wired into webui, mode=brainstorm layout in index.ts,
-terminal-inject event bridge.
+**drafthouse** (6 commits on main): CDI request context activation on virtual
+threads (ReviewerChannelBackend) and Awaitility threads (test lambdas). CSS
+layout fix — rows slot rule for host-panel children so diff panels are
+height-constrained. Stale tag names in 5 tests. Smart quote stripping in
+location parser. Blocks API alignment (ChannelAgentRequest 4-arg,
+ThreadEntry 7-arg, ConversationPoint 5-arg, ConversationFold new signatures).
+CI workflow updated to checkout and build casehub-pages for webui file:
+dependencies.
 
-45 new tests. Spec updated to reflect that @casehubio/pages-component-terminal
-already exists in casehub-pages (design review incorrectly assumed it didn't).
+508 tests pass locally. CI green on main.
 
 ## Immediate Next Step
 
-Pick from slices 3-6 or the backlog — all items are independent.
+Pick from the backlog — all items are independent.
 
 ## What's Next
 
@@ -40,6 +40,5 @@ Pick from slices 3-6 or the backlog — all items are independent.
 
 | Context | Where |
 |---------|-------|
-| Design spec | specs/2026-07-14-brainstorming-ui-decomposition-design.md |
-| Design review | ~/adr/casehub-drafthouse/brainstorming-ui-decomposition-20260714-041508/ |
-| Garden entry | GE-20260714-cdd0f2 (tsc composite stale .tsbuildinfo silent no-emit) |
+| Garden entries | GE-20260717-b31a92 (Edit tool smart quotes), GE-20260717-074283 (GitHub Packages 422 ghost) |
+| Pages PRs | casehubio/casehub-pages #194, #197, #198, #200, #202 |
