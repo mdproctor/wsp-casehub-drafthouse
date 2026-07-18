@@ -7,33 +7,47 @@
 ## Problem
 
 Design-review orchestration is batch: the reviewer raises all issues in one pass,
-then the implementor addresses all of them in one response. Each turn takes 5-10
-minutes. The human sees nothing until the full implementor response arrives and
-cannot intervene mid-batch.
+then the implementor addresses all of them in one response. This treats every issue
+equally — HIGH and LOW items get processed in the same invocation, with no
+opportunity for human control between priority tiers.
 
-**Hypothesis:** Priority-ordered chunked responses would give better UX (shorter,
-more frequent updates), better HIL (intervene before low-priority issues are
-addressed), and potentially lower cost (early termination when high-impact issues
-are resolved).
+The human cannot:
+- See HIGH-priority results before the full batch completes (5-10 minutes)
+- Decide after seeing HIGH fixes whether MEDIUM/LOW items are worth the compute
+- Skip lower-priority items to save cost or redirect effort
+
+These are not three independent problems with independent solutions — they share a
+root cause: batch processing ignores priority ordering and offers no mid-process
+control point.
+
+**Hypothesis:** Priority-ordered chunked invocations (HIGH → MEDIUM → LOW) would
+give the human mid-process control: see important results sooner, intervene between
+priority tiers, and optionally skip lower-priority work.
+
+**Prior art:** The timeout-retry mechanism (review.py lines 644-680) already
+implements partial-batch retry — when the implementor times out, the PM identifies
+addressed items, pre-applies them, and retries with only the missing items. This
+demonstrates the orchestration plumbing works for multiple invocations with reduced
+scope, but it is failure-driven (random scope reduction after timeout) rather than
+design-driven (intentional priority ordering with human control).
 
 ## Research Questions
 
-1. **Cost:** Does chunking cost more (multiple invocations) or less (smaller per-invocation, early termination)?
-2. **Quality:** Does the implementor lose cross-issue pattern recognition when it only sees a priority slice?
-3. **Reviewer efficiency:** Does chunking affect the reviewer's verification workload?
-4. **Orchestration complexity:** What changes to review.py?
-5. **UX:** How does batch arrival compare to chunked arrival in DraftHouse?
+1. **Cross-issue coupling (go/no-go gate):** Does the implementor reference issues
+   across priority tiers? Would a chunked implementor seeing only its priority
+   slice produce different (worse) fixes?
+2. **Cost model:** What does each implementor invocation cost as a function of
+   issue count? Can we estimate chunked cost from existing batch data?
+3. **Orchestration complexity:** What review.py changes are needed, and how much
+   of the existing timeout-retry path can be reused for intentional chunking?
 
 ## Research Structure
 
-Three phases, each building on the previous:
-
-### Phase 1 — Retrospective Analysis (no API cost)
-
-**1a. Cost baselines from all 10 existing drafthouse reviews.**
+### Phase 1a — Cost Baselines (operational tooling, no API cost)
 
 Extract per-round reviewer cost, implementor cost, and timing from all
-`~/adr/casehub-drafthouse/*/progress.log` files. Build a cost model:
+`~/adr/casehub-drafthouse/*/progress.log` files. Build into `adr-status.py`
+as a cost reporting feature — useful regardless of the chunking decision.
 
 | Metric | Source |
 |--------|--------|
@@ -43,13 +57,10 @@ Extract per-round reviewer cost, implementor cost, and timing from all
 | Total review cost | final cumulative |
 | Issue count vs cost | tracker.md issue count vs total cost |
 
-Expected baseline from initial data: ~$2/reviewer, ~$2-3/implementor in early
-rounds, tapering to ~$1 each as issues converge.
+### Phase 1b — Cross-Issue Pattern Analysis (go/no-go gate)
 
-**1b. Cross-issue pattern analysis from brainstorming-ui review.**
-
-This review has priority data: 7 HIGH, 12 MEDIUM. Read the implementor's
-round 1-2 responses and classify:
+The brainstorming-ui review has priority data: 7 HIGH, 12 MEDIUM. Read the
+implementor's round 1-2 responses and classify:
 
 - **Cross-priority references:** Did the implementor reference MEDIUM issues when
   fixing HIGH issues?
@@ -57,110 +68,70 @@ round 1-2 responses and classify:
 - **Pattern dependency:** Would a chunked implementor seeing only HIGH items have
   produced a different (worse) fix?
 
-This tells us whether cross-issue pattern loss is a real risk or a theoretical
-concern before spending money on the experiment.
+**Decision gate:** If cross-issue coupling is frequent and quality-affecting,
+chunking has a real quality risk — stop here and document why batch is better.
+If coupling is rare or cosmetic, proceed to Phase 2.
 
-### Phase 2 — Fork-after-reviewer Experiment (~$10-15 API cost)
+### Phase 2 — Build `--chunked` Mode (if Phase 1b green-lights)
 
-**Spec selection:** An unreviewed spec with enough surface area to generate 15+
-issues across priority levels. Candidates: an open drafthouse spec (e.g., #99
-live workspace watching), or a purpose-built spec for the experiment.
-
-**Experiment protocol:**
-
-1. Run the reviewer once on the chosen spec (standard review.py, round 1 only)
-   → produces issue list with priorities
-2. Save spec state and reviewer output as common starting point (git tag)
-3. **Batch run:** invoke implementor with ALL focus items (standard mode)
-   → capture: cost, wall-clock time, response content
-4. **Reset spec** to tagged state (git checkout)
-5. **Chunked run:** invoke implementor 2-3 times — HIGH items first, then
-   MEDIUM, then LOW — using same reviewer output and tracker
-   → capture: cost per chunk, wall-clock time per chunk, response content
-
-**Measurements:**
-
-| Metric | Batch | Chunked |
-|--------|-------|---------|
-| Total implementor cost | Single invocation | Sum of chunks |
-| Time to first update | Full batch latency | First chunk latency |
-| Cross-issue connections | Count of cross-references | Count of cross-references |
-| Redundant work | N/A | Fixes repeated across chunks |
-| Coverage | Issues addressed / total | Issues addressed / total |
-| Quality assessment | Qualitative read | Qualitative read |
-
-**Controls:**
-- Same reviewer output for both runs (fork after reviewer)
-- Same spec version (git tag)
-- Same model, same budget, same effort level
-- One round only — multi-round convergence is out of scope
-
-### Phase 3 — Orchestration Design Sketch
-
-Based on Phase 1+2 findings, produce:
-
-**If chunking is recommended:**
-
-Concrete sketch of review.py changes:
+Build chunking behind a `--chunked` flag in review.py:
 
 - After reviewer runs, partition `tracker.get_focus_items()` by priority
   (HIGH → MEDIUM → LOW)
-- Replace the single implementor invocation (review.py lines 611-691) with a
-  loop over priority chunks
+- Replace the single implementor invocation with a loop over priority chunks
 - Each chunk invocation uses `build_implementor_prompt()` with filtered focus
-  items plus a note that the full tracker is available for cross-issue context
+  items (no cross-chunk context — the simplest design, and the one that directly
+  tests whether cross-issue context loss matters in practice)
 - Between chunks: write JSONL events for DraftHouse incremental progress
-- Optional HIL checkpoint between chunks (configurable flag)
-- Early termination: human can skip remaining LOW items → mark DEFERRED
+- Optional HIL checkpoint between chunks (configurable)
+- Early termination: human can skip remaining chunks → mark items DEFERRED
 
-DraftHouse integration assessment:
-- WorkspaceParser: already handles per-round JSONL with priority metadata
-- WorkspaceReplayAdapter: already passes priority to channel message meta
-- Channel-feed panel: already groups by round — chunks appear as incremental
-  updates within the same round group
-- Expected DraftHouse changes: zero
+Leverage the existing timeout-retry mechanism (lines 644-680) which already
+handles partial progress persistence and retry with reduced scope.
 
-Tracker changes: none — `TrackedIssue.priority` already exists,
-`get_focus_items()` returns all non-terminal items, chunking logic filters
-externally.
+### Phase 3 — Pilot and Decide
 
-**If batch is recommended:** document why, with the evidence.
+Run `--chunked` on the next 3-5 real reviews alongside batch baselines from
+Phase 1a. Collect:
 
-**If hybrid is recommended:** specify which parts chunk and which don't.
+| Metric | Batch (Phase 1a) | Chunked (pilot) |
+|--------|-------------------|------------------|
+| Total implementor cost | From baselines | Per-pilot |
+| Time to first update | Full batch latency | First chunk latency |
+| Cross-issue connections | N/A | Cross-references in later chunks |
+| Coverage | Issues addressed / total | Issues addressed / total |
+| Early terminations | N/A | Times human skipped chunks |
+
+**Decision:** Chunk, keep batch, or hybrid — based on real-world data across
+diverse specs and priority distributions.
 
 **Open questions deferred to future work:**
 - How chunking interacts with session windows (reset boundaries)
 - Whether the reviewer should be told about chunk boundaries
-- Multi-round convergence effects (would need a longer experiment)
+- Multi-round convergence effects
 
 ## Output
 
 A research report (markdown) containing:
 
 1. Cost model tables (Phase 1a)
-2. Cross-issue pattern assessment (Phase 1b)
-3. Experiment data tables and qualitative comparison (Phase 2)
-4. Recommendation: chunk, keep batch, or hybrid — with specific rules
-5. If chunking recommended: orchestration change sketch (Phase 3)
+2. Cross-issue pattern assessment with go/no-go decision (Phase 1b)
+3. If proceed: pilot data tables and comparison (Phase 3)
+4. Recommendation: chunk, keep batch, or hybrid — with evidence
 
 ## Acceptance Criteria
 
-From the issue:
-
-- [ ] At least one side-by-side comparison: same spec reviewed with batch vs
-      chunked orchestration (Phase 2)
-- [ ] Cost analysis: total tokens, total cost, total time for each approach
-      (Phase 1a + Phase 2)
-- [ ] Quality analysis: did chunking miss cross-issue patterns? Did batch waste
-      time on trivial issues? (Phase 1b + Phase 2)
-- [ ] Written recommendation: chunk, keep batch, or hybrid (Phase 3)
-- [ ] If chunking recommended: sketch of orchestration changes to review.py
-      (Phase 3)
+- [ ] Cross-issue pattern analysis on at least one review with priority data
+      (Phase 1b)
+- [ ] Cost baselines from existing reviews (Phase 1a)
+- [ ] If Phase 1b green-lights: working `--chunked` flag in review.py (Phase 2)
+- [ ] If Phase 2 built: pilot data from at least 3 real reviews (Phase 3)
+- [ ] Written recommendation with evidence
 
 ## Non-goals
 
-- Actually implementing the chunked orchestration in review.py (that's a
-  separate issue if recommended)
-- Running multiple experiments for statistical significance
+- Controlled side-by-side experiment on a single spec (pilot data across
+  diverse specs is more informative)
+- Statistical significance testing
 - Multi-round convergence testing
 - DraftHouse UI changes
