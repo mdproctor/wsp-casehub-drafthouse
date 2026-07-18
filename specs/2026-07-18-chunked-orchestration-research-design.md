@@ -24,21 +24,55 @@ control point.
 give the human mid-process control: see important results sooner, intervene between
 priority tiers, and optionally skip lower-priority work.
 
-**Prior art:** The timeout-retry mechanism in `_invoke_claude()` / the batch
-implementor loop already implements partial-batch retry — when the implementor
-times out, the PM identifies addressed items, pre-applies them, and retries with
-only the missing items. This demonstrates the orchestration plumbing works for
-multiple invocations with reduced scope, but it is failure-driven (random scope
-reduction after timeout) rather than design-driven (intentional priority ordering
-with human control).
+**Prior art:** The timeout-retry mechanism (review.py lines 644-680) already
+implements partial-batch retry — when the implementor times out, the PM identifies
+addressed items, pre-applies them, and retries with only the missing items. This
+demonstrates the orchestration plumbing works for multiple invocations with reduced
+scope, but it is failure-driven (random scope reduction after timeout) rather than
+design-driven (intentional priority ordering with human control).
 
-**Existing implementation:** A `--chunked` flag was added to review.py in commit
-`4e7793a` (2026-07-18). The current implementation includes
-`_run_implementor_chunked()`, priority grouping via
-`Tracker.get_focus_items_by_priority()`, JSONL chunk events, and HIL checkpoints
-between priority tiers. However, the implementation lacks parity with the batch
-path's safeguards (see Phase 2). This spec's Phase 2 is therefore a validation and
-hardening effort, not a greenfield build.
+## Current State
+
+The `--chunked` flag and `_run_implementor_chunked()` already exist in review.py
+(lines 250-375, flag at line 1595, dispatch at line 764). The implementation
+partitions focus items by priority, loops over chunks, writes per-chunk markdown
+files, emits JSONL events, and includes a human-in-the-loop checkpoint between
+priority tiers.
+
+Known issues in the current implementation:
+
+1. **Resume broken:** `_rebuild_tracker()` (line 1299) reads only
+   `implementor-{rn}.md` (line 1325). Chunked mode writes
+   `implementor-{rn}-chunk-{idx}.md` files (line 283). No combined file is
+   synthesized, so resume after a chunked round loses all implementor responses.
+
+2. **No evidence verification:** Batch mode verifies FIXED claims against git
+   diffs via `_verify_evidence()` in Step 4 (lines 894-960). Chunked mode skips
+   verification entirely — the "Fall through to termination checks" comment at
+   line 777 bypasses Step 4.
+
+3. **No timeout-retry:** Batch mode retries on timeout with only missing items
+   (lines 814-848). Chunked mode aborts the entire run on any chunk failure
+   (line 293).
+
+4. **Silent failure on mid-chunk crash:** Items in a failed chunk stay OPEN with
+   no indication they were attempted. No DEFERRED marking, no failure context in
+   the tracker.
+
+5. **DraftHouse parser gap:** `WorkspaceParser.parseRoundFromJsonl` handles core
+   events (`issue_fixed`, `issue_rejected`, etc.) correctly because `_write_jsonl`
+   (line 770) combines all chunk events into the standard `implementor-{rn}.jsonl`.
+   However: the markdown fallback path (`parseRoundFromMarkdown`) reads
+   `implementor-{rn}.md` which doesn't exist in chunked mode, and
+   `chunk_start`/`chunk_end` JSONL events are emitted but silently ignored by the
+   parser's switch statement.
+
+6. **No test coverage:** The soredium test suite (121 tests) has zero tests for
+   `_run_implementor_chunked`, the `--chunked` flag, or any chunked-mode edge
+   cases.
+
+Phase 2 of this research validates and hardens the existing implementation rather
+than building from scratch.
 
 ## Research Questions
 
@@ -46,169 +80,134 @@ hardening effort, not a greenfield build.
    across priority tiers? Would a chunked implementor seeing only its priority
    slice produce different (worse) fixes?
 2. **Cost model:** What does each implementor invocation cost as a function of
-   issue count and input/output token breakdown? Can we estimate chunked cost
-   from existing batch data, accounting for context-loading multiplication?
-3. **Orchestration complexity:** What review.py changes are needed, and how much
-   of the existing timeout-retry path can be reused for intentional chunking?
+   issue count? Can we estimate chunked cost from existing batch data?
+3. **Orchestration complexity:** What review.py changes are needed to harden the
+   existing chunked implementation, and how much of the existing timeout-retry
+   path can be reused?
+4. **Existing implementation correctness:** Does the current `--chunked`
+   implementation produce correct results despite the known bugs? Which bugs
+   must be fixed before pilot data collection?
+
+## Alternatives Considered
+
+### Priority ordering within a single invocation
+
+Order `focus_items` by priority within `build_implementor_prompt` so HIGH items
+are listed first, MEDIUM second, LOW last. Combined with the existing
+timeout-retry mechanism, this gives priority ordering and timeout-aware priority
+without multi-invocation complexity.
+
+**Why this is insufficient:** This addresses priority ordering but not mid-process
+human control — the primary motivation for chunked orchestration. The human still
+cannot see HIGH results before the full batch completes, decide after seeing HIGH
+fixes whether to skip MEDIUM/LOW, or terminate early to save cost.
+
+It also relies on the agent addressing items in presentation order, which is not
+guaranteed. The existing timeout-retry mechanism catches timeouts, but scope
+reduction is random (whatever was addressed first), not priority-aware.
+
+This alternative is worth noting as a zero-cost improvement that can be applied
+independently of chunking — priority-ordered prompt construction is good practice
+regardless. But it does not solve the control problem that motivates this research.
 
 ## Research Structure
 
 ### Phase 1a — Cost Baselines (operational tooling, no API cost)
 
-Extract per-round reviewer cost, implementor cost, and timing from all
-`~/adr/casehub-drafthouse/*/progress.log` files. Build into `adr-status.py`
-as a cost reporting feature — useful regardless of the chunking decision.
+Per-round cost and timing data already exists in `progress.log` files as
+`Reviewer done ($N)` / `Implementor done ($N)` lines. Phase 1a parses and
+aggregates this existing data into `adr-status.py` as a cost reporting feature.
 
-| Metric | Source |
-|--------|--------|
-| Reviewer cost per round | progress.log `Reviewer done ($N)` |
-| Implementor cost per round | progress.log `Implementor done ($N)` |
-| Input tokens per invocation | `claude -p` JSON output `input_tokens` |
-| Output tokens per invocation | `claude -p` JSON output `output_tokens` |
-| Wall-clock time per invocation | progress.log timestamps |
-| Cost taper over rounds | cumulative cost / round number |
-| Total review cost | final cumulative |
-| Issue count vs cost | tracker.md issue count vs total cost |
-
-The input/output token breakdown is critical for predicting chunked cost. Each
-chunk invocation re-loads the full context (spec, codebase, protocols), so input
-tokens are multiplied by chunk count while output tokens scale with issue count
-per chunk. Without this breakdown, aggregate cost numbers cannot be decomposed
-into the components that chunking changes.
-
-Note: Anthropic's automatic prompt caching may reduce the effective
-context-loading cost for consecutive chunk invocations that share a common prompt
-prefix. The token counts should capture both cached and uncached reads to
-understand the actual cost multiplier.
+| Metric | Source | Status |
+|--------|--------|--------|
+| Reviewer cost per round | progress.log `Reviewer done ($N)` | Exists in logs, needs parsing |
+| Implementor cost per round | progress.log `Implementor done ($N)` | Exists in logs, needs parsing |
+| Cost taper over rounds | Computed from above | Needs aggregation |
+| Total review cost | Computed from above | Needs aggregation |
+| Issue count vs cost | tracker.md issue count vs total cost | Needs correlation |
 
 ### Phase 1b — Cross-Issue Pattern Analysis (go/no-go gate)
 
-**Prerequisite:** Issue #96 (structured priority metadata) is complete. Priority
-metadata infrastructure is fully implemented: `parser.py` extracts
-PRIORITY/LOCATION/DEPENDS, `tracker.py` stores priority on `TrackedIssue`, the
-reviewer CLAUDE.md prompts for structured metadata.
+The brainstorming-ui review has priority data: 7 HIGH, 12 MEDIUM. Read the
+implementor's round 1-2 responses and classify:
 
-Analyse all available reviews that have priority data. As of 2026-07-18, 60+
-reviews include structured PRIORITY metadata (all reviews since ~2026-07-13).
-Start with a representative sample across projects:
-
-- **casehub-drafthouse/brainstorming-ui-decomposition** (7 HIGH, 12 MEDIUM)
-- **casehub-engine/unified-execution-model** (35 issues with priority data)
-- **casehub-blocks/hybrid-decomposition** (12 issues with priority data)
-- Additional reviews selected to cover varying issue counts and priority
-  distributions
-
-For each review, read the implementor's round 1-2 responses and classify:
-
-- **Cross-priority references:** Did the implementor reference MEDIUM/LOW issues
-  when fixing HIGH issues?
+- **Cross-priority references:** Did the implementor reference MEDIUM issues when
+  fixing HIGH issues?
 - **Batched fixes:** Were any fixes applied to multiple issues simultaneously?
-- **Pattern dependency:** Would a chunked implementor seeing only one priority
-  tier have produced a different (worse) fix?
+- **Pattern dependency:** Would a chunked implementor seeing only HIGH items have
+  produced a different (worse) fix?
 
-**Decision gate:** If cross-issue coupling is frequent and quality-affecting
-across multiple reviews, chunking has a real quality risk — stop here and document
-why batch is better. If coupling is rare or cosmetic, proceed to Phase 2. A
-single-review analysis is insufficient for a go/no-go decision — the gate
-requires evidence from at least 3 reviews with varying priority distributions.
+**Decision gate:** If cross-issue coupling is frequent and quality-affecting,
+chunking has a real quality risk — stop here and document why batch is better.
+If coupling is rare or cosmetic, proceed to Phase 2.
 
 ### Phase 2 — Validate and Harden `--chunked` Mode (if Phase 1b green-lights)
 
-The `--chunked` flag already exists in review.py (commit `4e7793a`). The current
-implementation covers the core orchestration: priority grouping, per-chunk
-invocation, JSONL events, HIL checkpoints, and early termination. Phase 2
-validates this implementation and closes safeguard gaps before using it for pilot
-data.
+The `--chunked` flag exists but has known bugs (see Current State). Phase 2
+validates the existing implementation and fixes the identified issues:
 
-**Design choice — no cross-chunk context:** Each chunk invocation sees only its
-priority slice. This is intentional: the simplest design directly tests whether
-cross-issue context loss matters in practice. If the pilot reveals quality loss
-from missing cross-chunk context, context-aware chunking becomes a follow-up
-design (see issue filed below).
+**Resume synthesis:** After all chunks complete, synthesize a combined
+`implementor-{rn}.md` from the per-chunk files. This makes chunked rounds
+produce the same file structure as batch rounds, keeping `_rebuild_tracker()`
+and the `WorkspaceParser` markdown fallback working unchanged.
 
-**Design choice — cold-start chunks:** Each chunk is a fresh `claude -p`
-invocation with no session continuity from prior chunks. Within a single round,
-chunks do not share session state. This isolates each priority tier's results and
-avoids session-window complexity. Anthropic's automatic prompt caching may reduce
-the effective context-loading cost for consecutive invocations sharing a common
-prompt prefix — Phase 1a token data will quantify this.
+**Evidence verification:** Run the same evidence verification (Step 4) on chunked
+output that batch mode runs. After synthesizing the combined file, the existing
+verification path can process it identically to a batch response.
 
-**Safeguard parity checklist** — the existing chunked path is missing these
-batch-path features:
+**Per-chunk timeout-retry:** If a chunk's `_invoke_claude` call returns None
+(timeout), retry with only the unaddressed items from that chunk before aborting.
+Reuse the existing timeout-retry logic from batch mode (lines 814-848).
 
-- [ ] **Timeout-retry per chunk:** If a chunk times out, identify addressed
-      items within the chunk, preserve partial progress, and retry with only the
-      unaddressed items from that priority tier (batch equivalent: lines 814–858)
-- [ ] **Session ID management:** Reuse sessions within a chunk retry to benefit
-      from cached context (batch equivalent: lines 788–810)
-- [ ] **Missing-file retry:** If a chunk invocation produces no output file,
-      retry with HIL prompt before aborting (batch equivalent: lines 851–858)
-- [ ] **Evidence verification:** For spec-review mode, verify FIXED responses
-      against git diff (batch equivalent: lines 894–943)
+**Mid-chunk failure handling:** On chunk failure, mark remaining unprocessed items
+in the chunk as DEFERRED with note `"chunk failure (priority {p})"`. These appear
+in the tracker with explicit failure context rather than silently staying OPEN.
 
-**Test coverage prerequisite:** Before trusting pilot data, the chunked path
-needs integration tests covering:
+**DraftHouse integration:** The JSONL path already works correctly for essential
+review data (issue_fixed, issue_rejected, etc.). Add `chunk_start` and `chunk_end`
+case handling to `WorkspaceParser.parseRoundFromJsonl` to capture chunk boundary
+metadata. The synthesized combined `implementor-{rn}.md` (above) fixes the
+markdown fallback path.
 
-- [ ] Orchestration flow (3-tier priority grouping → sequential invocation)
-- [ ] HIL checkpoint behavior (continue / skip / abort)
-- [ ] Partial failure and recovery (chunk timeout midway through tiers)
-- [ ] Tracker state transitions across chunks
-- [ ] JSONL event ordering with chunk events interleaved
-- [ ] Non-interactive mode defaults (all chunks auto-continue)
+**Reviewer chunk awareness:** In multi-round reviews, the reviewer sees mixed
+confirmation statuses (some ADDRESSED from chunk 1, some still OPEN from chunk 2).
+Add a note to the reviewer prompt when chunked mode was used: "The implementor
+addressed items in priority-ordered chunks (HIGH → MEDIUM → LOW). Items may have
+been addressed in separate invocations without cross-chunk context."
+
+**Test requirements:** Add tests for:
+- Chunk failure mid-round (items properly marked DEFERRED)
+- Resume after chunked round (synthesized file parsed correctly)
+- Single-priority-tier reviews (one chunk, no checkpoint)
+- Human skip at checkpoint (remaining items DEFERRED)
+- Evidence verification on chunked output
 
 ### Phase 3 — Pilot and Decide
 
-**3a. Controlled comparison (same spec, both modes):** Run one review with both
-batch and `--chunked` on the same spec to isolate the chunking variable from
-spec-to-spec variance. This requires running the review twice — once batch, once
-chunked — on a spec with a representative priority distribution (at least 3
-HIGH, 5+ MEDIUM items).
+Run `--chunked` on the next 3-5 real reviews alongside batch baselines from
+Phase 1a. Include at least one controlled comparison: the same spec reviewed
+with both batch and chunked orchestration, to isolate the effect of chunking
+from spec-specific variance.
 
-**3b. Diverse pilots:** Run `--chunked` on the next 3-5 real reviews alongside
-batch baselines from Phase 1a. The controlled comparison (3a) isolates the
-variable; the diverse pilots test generalisability across different specs,
-projects, and priority distributions.
+Collect:
 
-Collect for both 3a and 3b:
-
-| Metric | Batch (Phase 1a / 3a) | Chunked (pilot) |
-|--------|------------------------|------------------|
+| Metric | Batch (Phase 1a) | Chunked (pilot) |
+|--------|-------------------|------------------|
 | Total implementor cost | From baselines | Per-pilot |
-| Input tokens per invocation | From Phase 1a | Per-chunk |
 | Time to first update | Full batch latency | First chunk latency |
+| Cross-issue connections | N/A | Cross-references in later chunks |
 | Coverage | Issues addressed / total | Issues addressed / total |
 | Early terminations | N/A | Times human skipped chunks |
+| Rounds to convergence | From baselines | Per-pilot |
 
-**Quality metrics** (derivable from tracker data, no additional instrumentation):
-
-| Quality metric | What it measures | Source |
-|----------------|-----------------|--------|
-| Reviewer contest rate | How often FIXED items are contested next round | tracker round-over-round status |
-| Rounds to convergence | Total rounds before all items resolve | tracker terminal state |
-| REJECTED rate | Implementor pushback frequency | tracker REJECTED count / total |
-| Cross-chunk contradictions | Fixes in chunk N that contradict fixes in chunk N-1 | reviewer verification comments |
-| Duplicate effort | Same spec section modified in multiple chunks | git diff per chunk commit |
-
-**Measuring context loss:** The absence of explicit cross-references between
-chunks does not prove context wasn't needed. Phase 3 should specifically check:
-- Whether later-chunk fixes contradict or duplicate earlier-chunk fixes
-- Whether the reviewer contests chunked FIXED items at a higher rate than batch
-- Whether rounds to convergence increase with chunking
-
-**Multi-round convergence:** If chunking causes the implementor to miss
-cross-issue patterns, the reviewer will contest more items, adding rounds. More
-rounds × more chunks per round could make total cost worse than batch. Phase 3
-must track total rounds and total cost across the full review, not just per-round
-metrics.
+**Session context design decision:** Each chunk runs as a fresh `claude -p`
+session with no cross-chunk context. This is the simplest design and directly
+tests whether cross-issue context loss matters in practice. If Phase 3 data
+shows quality degradation from context loss, session reuse across chunks becomes
+a follow-up concern.
 
 **Decision:** Chunk, keep batch, or hybrid — based on real-world data across
-both the controlled comparison and diverse pilots.
-
-**Open questions deferred to future work:**
-- Whether the reviewer should be told about chunk boundaries (currently each
-  chunk produces a separate response file; the reviewer sees all of them)
-- Context-aware chunking: if basic no-context chunking shows quality loss,
-  design a variant that passes prior chunk summaries to later chunks
+diverse specs and priority distributions.
 
 ## Output
 
@@ -221,21 +220,22 @@ A research report (markdown) containing:
 
 ## Acceptance Criteria
 
-- [ ] Cross-issue pattern analysis on at least 3 reviews with priority data
-      (Phase 1b)
-- [ ] Cost baselines with input/output token breakdown from existing reviews
-      (Phase 1a)
-- [ ] If Phase 1b green-lights: `--chunked` implementation validated with
-      safeguard parity and test coverage (Phase 2)
-- [ ] At least one controlled comparison: same spec reviewed with batch vs
-      chunked orchestration (Phase 3a)
-- [ ] If Phase 2 validated: pilot data from at least 3 diverse reviews (Phase 3b)
-- [ ] Quality metrics collected alongside cost metrics (Phase 3)
+- [ ] Cost baselines parsed and aggregated from existing progress.log files
+      (Phase 1a — data exists, needs parsing)
+- [ ] Cross-issue pattern analysis on at least one review with priority data
+      (Phase 1b — new analysis)
+- [ ] If Phase 1b green-lights: existing `--chunked` bugs fixed — resume
+      synthesis, evidence verification, timeout-retry, failure handling
+      (Phase 2 — hardening existing implementation)
+- [ ] If Phase 2 complete: test coverage for chunked mode edge cases
+      (Phase 2 — new tests)
+- [ ] If Phase 2 complete: at least one controlled same-spec comparison plus
+      pilot data from 2-4 additional reviews (Phase 3 — new data collection)
 - [ ] Written recommendation with evidence
 
 ## Non-goals
 
-- Statistical significance testing
-- Context-aware chunking (cross-chunk summaries) — deferred unless basic
-  chunking shows quality loss
-- DraftHouse UI changes
+- Statistical significance testing (pilot observations suffice for a
+  go/no-go decision)
+- DraftHouse UI changes for chunk visualization (the JSONL path works for
+  data; rendering improvements are a separate concern)
