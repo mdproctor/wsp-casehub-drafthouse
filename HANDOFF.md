@@ -1,29 +1,28 @@
-# Handover — 2026-07-17
+# Handover — 2026-07-19
 
-**Branch:** `main` (CI fix — #107 closed)
+**Branch:** `main` (#97 closed)
 
 ## What Happened This Session
 
-Fixed CI which had been red since July 10. Root causes spanned two repos:
+Research: chunked orchestration vs batch for design-review (#97). Built
+`--chunked` flag in soredium/design-review (review.py, tracker.py). Ran
+head-to-head comparison on same spec — both modes find same core issues,
+chunked produces deeper middle-tier fixes, costs 60% more per round.
 
-**casehub-pages** (5 PRs merged: #194, #197, #198, #200, #202): Added Maven
-CI/publish workflow for backend modules, published `casehub-pages-push` to
-GitHub Packages, bumped npm package versions to 0.2.3/0.2.1.
+Key soredium commits (on soredium main):
+- `get_focus_items_by_priority()` in tracker.py (4 tests)
+- `--chunked` flag + `_run_implementor_chunked()` in review.py (2 tests)
 
-**drafthouse** (6 commits on main): CDI request context activation on virtual
-threads (ReviewerChannelBackend) and Awaitility threads (test lambdas). CSS
-layout fix — rows slot rule for host-panel children so diff panels are
-height-constrained. Stale tag names in 5 tests. Smart quote stripping in
-location parser. Blocks API alignment (ChannelAgentRequest 4-arg,
-ThreadEntry 7-arg, ConversationPoint 5-arg, ConversationFold new signatures).
-CI workflow updated to checkout and build casehub-pages for webui file:
-dependencies.
+Also: `adr-status.py --costs` for per-round cost reporting (~/adr repo).
 
-508 tests pass locally. CI green on main.
+Two bugs found during comparison, not yet fixed:
+1. Prompt filename scoping — implementor writes to standard filename, chunked code expects chunk-specific filename
+2. Focus constraint ignored — HIGH chunk addresses all issues, not just HIGH
 
 ## Immediate Next Step
 
-Pick from the backlog — all items are independent.
+Pick from the backlog — all items are independent. The two chunked-mode bugs
+should be fixed before piloting `--chunked` on real reviews.
 
 ## What's Next
 
@@ -31,14 +30,17 @@ Pick from the backlog — all items are independent.
 |---|-------|-------|------------|-------|
 | #53 | Brainstorming UI slices 3-6 | S-M each | Low-Med | Slice 3: read-only panel, Slice 4: interactive injection, Slice 5: skill integration, Slice 6: convergence view |
 | #99 | Live workspace watching | M | Med | Can consume JSONL events directly |
-| #97 | Chunked orchestration research | M | High | Unblocked since #96 closed |
 | #93 | Document workbench (epic) | XL | High | 5 remaining child issues |
-| #100 | Channel-based HIL | L | High | Blocked by #97, #99 |
+| #100 | Channel-based HIL | L | High | Blocked by #99 |
 | #101 | Panel extraction | XL | High | Blocked by all above |
+| — | Fix chunked-mode bugs (soredium) | S | Low | Prompt filename + focus constraint — prerequisite for pilot |
 
 ## References
 
 | Context | Where |
 |---------|-------|
-| Garden entries | GE-20260717-b31a92 (Edit tool smart quotes), GE-20260717-074283 (GitHub Packages 422 ghost) |
-| Pages PRs | casehubio/casehub-pages #194, #197, #198, #200, #202 |
+| Research report | specs/2026-07-18-chunked-orchestration-report.md |
+| Cross-issue analysis | specs/2026-07-18-cross-issue-analysis.md |
+| Blog entry | blog/2026-07-18-mdp27-chunking-the-implementor.md |
+| Comparison workspaces | ~/adr/casehub-drafthouse/batch-comparison-*/, chunked-comparison-*/ |
+| Soredium commits | ~/claude/hortora/soredium (design-review/review.py, tracker.py) |
