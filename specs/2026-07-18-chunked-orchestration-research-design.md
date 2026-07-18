@@ -51,13 +51,15 @@ Known issues in the current implementation:
    verification entirely — the "Fall through to termination checks" comment at
    line 777 bypasses Step 4.
 
-3. **No timeout-retry:** Batch mode retries on timeout with only missing items
-   (lines 814-848). Chunked mode aborts the entire run on any chunk failure
-   (line 293).
+3. **No timeout-retry:** Batch mode retries on timeout — identifies addressed
+   items from partial output, pre-applies them, and retries with only missing
+   items (lines 814-848). Chunked mode processes partial output from timed-out
+   chunks but does not retry for unaddressed items. Complete invocation failure
+   (human abort) terminates the chunked run (line 293).
 
-4. **Silent failure on mid-chunk crash:** Items in a failed chunk stay OPEN with
-   no indication they were attempted. No DEFERRED marking, no failure context in
-   the tracker.
+4. **Silent failure on mid-chunk crash:** Items in a failed chunk and all items
+   in subsequent unprocessed priority tiers stay OPEN with no indication they
+   were attempted. No DEFERRED marking, no failure context in the tracker.
 
 5. **DraftHouse parser gap:** `WorkspaceParser.parseRoundFromJsonl` handles core
    events (`issue_fixed`, `issue_rejected`, etc.) correctly because `_write_jsonl`
@@ -155,12 +157,19 @@ and the `WorkspaceParser` markdown fallback working unchanged.
 output that batch mode runs. After synthesizing the combined file, the existing
 verification path can process it identically to a batch response.
 
-**Per-chunk timeout-retry:** If a chunk's `_invoke_claude` call returns None
-(timeout), retry with only the unaddressed items from that chunk before aborting.
-Reuse the existing timeout-retry logic from batch mode (lines 814-848).
+**Per-chunk timeout-retry:** Apply the same partial-output recovery as batch
+mode. When a chunk invocation times out with partial output (`timed_out=True`),
+identify which items were addressed in the partial response, pre-apply them to
+the tracker, and retry with only the unaddressed items from that chunk. This
+reuses the existing timeout-retry logic from batch mode (lines 814-848).
+Complete invocation failure (human abort returning `None`) correctly terminates
+the chunked run — no change needed for that path.
 
-**Mid-chunk failure handling:** On chunk failure, mark remaining unprocessed items
-in the chunk as DEFERRED with note `"chunk failure (priority {p})"`. These appear
+**Mid-chunk failure handling:** On chunk failure, mark remaining unprocessed
+items in the failed chunk AND all items in subsequent unprocessed priority tiers
+as DEFERRED with note `"chunk failure (priority {p})"`. This mirrors the
+user-initiated skip logic (lines 360-369) which already marks remaining
+priority tiers as DEFERRED, but triggers automatically on failure. Items appear
 in the tracker with explicit failure context rather than silently staying OPEN.
 
 **DraftHouse integration:** The JSONL path already works correctly for essential
