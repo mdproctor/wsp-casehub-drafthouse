@@ -189,6 +189,7 @@ been addressed in separate invocations without cross-chunk context."
 - Resume after chunked round (synthesized file parsed correctly)
 - Single-priority-tier reviews (one chunk, no checkpoint)
 - Human skip at checkpoint (remaining items DEFERRED)
+- Per-chunk timeout-retry (partial output recovery, unaddressed items retried)
 - Evidence verification on chunked output
 
 ### Phase 3 — Pilot and Decide
