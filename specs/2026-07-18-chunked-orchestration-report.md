@@ -74,30 +74,82 @@ intentionally rather than reactively.
 Default behavior unchanged — without `--chunked`, the existing batch path
 runs identically to before. 53 tests pass.
 
+## Head-to-Head Comparison
+
+Ran both modes on the same 137-line spec (the research design spec itself).
+
+### Reviewer findings
+
+| | Batch | Chunked |
+|---|---|---|
+| Issues raised | 13 | 12 |
+| Shared core findings | 6 | 6 |
+| Unique findings | 7 (methodological) | 4 (implementation bugs) |
+
+Both found the same 6 core problems. Batch found more methodological
+weaknesses (single-sample go/no-go, no quality definition, design/measurement
+conflation). Chunked found more implementation-specific bugs (resume ignores
+chunk files, evidence verification skipped, parser gap). Neither missed
+something critical the other caught.
+
+### Implementor fix quality
+
+**Batch:** Addressed all 13 issues in one pass. Competent verification of
+reviewer claims, spec updates committed. Standard quality.
+
+**Chunked HIGH (4 focus items):** Addressed all 12 issues — ignored the
+focus constraint and responded to the full reviewer file. Prompt design flaw.
+
+**Chunked MEDIUM (5 focus items):** Re-addressed R1-05 through R1-09 with
+more precision than either batch or HIGH. On timeout-retry (R1-05): batch
+wrote "missing timeout-retry." MEDIUM distinguished two failure modes —
+timeout with partial output (retry correct) vs human abort (current break
+correct) — and traced both code paths. The narrower scope produced deeper
+analysis.
+
+**Chunked LOW (3 focus items):** Straightforward — two rejections, one fix.
+Adequate but unremarkable.
+
+### Cost
+
+| Mode | Reviewer | Implementor | Total |
+|------|----------|-------------|-------|
+| Batch | $1.72 | $3.27 | $4.99 |
+| Chunked | $1.96 | $6.00 (H:$1.87 M:$2.30 L:$1.83) | $7.96 |
+
+Chunked costs 60% more. Skipping LOW would bring it to $6.13 (23% more).
+
+### Known bugs found during comparison
+
+1. **Prompt scoping:** `build_implementor_prompt` hardcodes the output filename
+   to `implementor-{N}.md`. Chunked code expects `implementor-{N}-chunk-{K}.md`.
+   Each chunk overwrites the previous. Responses were processed before overwrite
+   (tracker correct) but resume and evidence verification are broken.
+2. **Focus constraint ignored:** HIGH chunk addressed all issues, not just HIGH.
+   The prompt passes focus items but the implementor reads the full reviewer
+   file and responds to everything it sees.
+
 ## Recommendation
 
-**Adopt `--chunked` for pilot use.** The evidence supports it:
+**Adopt `--chunked` for pilot use after fixing the two bugs above.**
 
-1. **Quality risk is negligible.** 90% of implementor fixes are self-contained.
-   The one cross-priority reference was incidental — fix quality unchanged.
+1. **Quality is at least equivalent, potentially better for middle tiers.**
+   The narrower scope lets the implementor go deeper on each issue. The
+   reviewer finds the same core problems regardless of mode.
 
-2. **Cost is neutral-to-favorable.** Per-chunk invocations are cheaper than
-   full-batch. Early termination (skipping LOW) saves further. Net cost depends
-   on termination frequency — pilot data will clarify.
+2. **Cost is 60% higher per round.** Early termination partially offsets
+   this. Whether the depth improvement justifies the cost depends on review
+   complexity — pilot data will clarify.
 
-3. **UX is clearly better.** Batch: 5-10 min silence → dump. Chunked: 1-3 min →
-   HIGH results → decide → MEDIUM → decide. The human sees important results
-   sooner and can redirect effort.
+3. **UX is clearly better.** HIGH results in 1-3 minutes instead of 5-10.
+   Human controls depth between tiers.
 
-4. **Implementation is behind a flag.** Zero risk to existing reviews. The
-   `--chunked` flag can be removed or made default after pilot validation.
+4. **Two bugs must be fixed first:** prompt filename scoping and focus
+   constraint enforcement. Without these, chunked mode silently loses data
+   on resume.
 
 ## Next Steps
 
-**Phase 3: Pilot `--chunked` on the next 3-5 real reviews.** Collect:
-- Per-chunk cost vs batch baseline
-- Early termination frequency (how often humans skip LOW)
-- Any quality issues not caught by the retrospective analysis
-
-After pilot data, decide: make `--chunked` the default, keep as opt-in, or
-revert if quality degrades.
+1. Fix the two bugs (prompt filename, focus enforcement)
+2. Pilot `--chunked` on the next 3-5 real reviews
+3. After pilot data: make default, keep opt-in, or revert
