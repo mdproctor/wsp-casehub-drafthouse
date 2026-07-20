@@ -52,7 +52,8 @@ New class: `io.casehub.drafthouse.debate.WorkspaceWatcher`
 **Responsibilities:**
 - Hold a `DirectoryWatcher` handle from `io.methvin:directory-watcher`
 - Track state: `lastReplayedRound`, `progressLogOffset`, `existingIssueIds`,
-  `raiseMessageIds`, `lastMessageId`
+  `raiseMessageIds`, `lastMessageId`, `processedRounds` (dedup set),
+  `previousTrackerStatuses` (for DEFERRED/evidence diffing)
 - On new response file: parse single round via WorkspaceParser, dispatch entries
   via extracted `WorkspaceReplayAdapter` methods
 - On progress.log change: tail new lines, parse and push metadata events
@@ -63,7 +64,9 @@ New class: `io.casehub.drafthouse.debate.WorkspaceWatcher`
 - `WebSocketEventBus` — push debate entries and metadata to browser
 - `DebateSession` — the session being watched (senders obtained via
   `session.instanceIdFor(AgentType.REV)` / `.IMP`)
-- `String tenancyId` — captured from the creating request context for CDI-free dispatch
+- `String tenancyId` — captured from `channel.tenancyId()` at construction time
+- `Runnable onComplete` — callback to remove watcher from `activeWatchers` map
+  (provided by `DebateMcpTools`: `() -> activeWatchers.remove(session.debateSessionId())`)
 
 **Lifecycle:**
 - `start(Path workspacePath, int startFromRound, Set<String> existingIssueIds,
@@ -129,7 +132,8 @@ debate session ID.
 
 - **Idempotency:** repeated `load_workspace` calls for the same workspace detect the
   existing watcher and return `"status":"already_watching"`
-- **Cleanup on completion:** watcher removes itself when terminal state detected
+- **Cleanup on completion:** watcher invokes `onComplete` callback when terminal state
+  detected, which removes itself from the `activeWatchers` map
 - **Cleanup on end_debate:** Before session removal in `endDebate()`, check
   `activeWatchers.remove(channelId)` and call `watcher.stop()`. If `stop()` throws,
   log the error and continue with remaining cleanup (deregister participants,
@@ -160,7 +164,7 @@ DirectoryWatcher monitors the workspace directory recursively. Events are filter
 | `responses/reviewer-N.md` or `.jsonl` | CREATE | Parse round N, dispatch RAISE entries |
 | `responses/implementor-N.md` or `.jsonl` | CREATE | Re-parse round N for responses, dispatch QUALIFY/COUNTER/FLAG_HUMAN entries |
 | `progress.log` | MODIFY | Tail new lines, push metadata events |
-| `tracker.md` | MODIFY | Re-parse tracker for updated issue statuses |
+| `tracker.md` | MODIFY | Re-parse tracker, diff against previous state, dispatch DEFERRED/evidence entries for changes |
 | Everything else | * | Ignored |
 
 ### New response file flow
@@ -177,7 +181,9 @@ reviewer-3.md appears
 implementor-3.md appears  
   → Re-parse round 3 (responses now available)
   → Dispatch QUALIFY/COUNTER/FLAG_HUMAN entries (response entries only)
-  → Re-parse tracker.md for status updates
+  → Re-parse tracker.md — diff against previous tracker state:
+    • Newly DEFERRED issues → dispatchDeferred()
+    • New evidence commits → dispatch evidence MEMO entries
   → Push debate entries via eventBus.pushDebateEntries()
   → Emit ROUND_SNAPSHOT if spec commit found in tracker
   → Update lastReplayedRound = 3
@@ -199,11 +205,14 @@ Write operation. As a safety measure, the watcher verifies that a markdown file
 contains a `SIGNAL:` line before parsing. If absent, the watcher retries after a
 500ms delay (max 3 retries) before treating the file as unparseable.
 
-**Catch-up reconciliation:** After the watcher starts, it immediately calls
+**Catch-up reconciliation and dedup:** The watcher maintains a
+`Set<Integer> processedRounds = ConcurrentHashMap.newKeySet()` to prevent duplicate
+processing. Both the async event handler and the catch-up scan guard processing with
+`processedRounds.add(roundNum)` — if it returns `false`, the round was already handled
+by the other thread. After the watcher starts, it immediately calls
 `WorkspaceParser.discoverMaxRound()` and compares against `lastReplayedRound`. Any
-rounds that appeared between replay's directory scan and watcher registration are
-processed immediately. This closes the TOCTOU window between replay completion and
-watcher start.
+gap rounds are processed (subject to the dedup guard). This closes the TOCTOU window
+without introducing duplicate entries.
 
 ### Progress.log tailing
 
@@ -263,7 +272,8 @@ When any terminal state is detected in progress.log:
 Actions:
 1. Push `REVIEW_TERMINAL` metadata event with `finalState` field
 2. Call `stop()` — close DirectoryWatcher
-3. Remove from active watchers map in DebateMcpTools
+3. Invoke `onComplete.run()` — removes watcher from `activeWatchers` map via the
+   callback provided at construction time
 
 ## load_workspace Integration
 
@@ -282,7 +292,7 @@ if (!reviewComplete) {
     var adapter = new WorkspaceReplayAdapter(
         messageService, instanceService, channelGateway, eventBus);
     var watcher = new WorkspaceWatcher(adapter, eventBus, session,
-        currentPrincipal.tenancyId());
+        channel.tenancyId(), () -> activeWatchers.remove(session.debateSessionId()));
     watcher.start(wsPath, lastRound, existingIds,
         result.raiseMessageIds(), result.lastMessageId(),
         parseResult.projectRepoPath(), parseResult.specPath());
@@ -310,7 +320,9 @@ the six terminal states: `REVIEW DONE`, `REVIEW PAUSED`, `REVIEW FAILED`,
 and accesses request-scoped beans (e.g. `CurrentPrincipal` for tenancy resolution).
 The watcher thread has no CDI request context. Solution:
 
-1. Capture `tenancyId` from the creating request context at watcher construction time
+1. Capture `tenancyId` from the channel at watcher construction time (`channel.tenancyId()`
+   — the channel already carries its tenancy from creation). No `CurrentPrincipal` injection
+   needed in `DebateMcpTools`.
 2. Activate CDI request context around each callback:
    ```java
    var rc = Arc.container().requestContext();
