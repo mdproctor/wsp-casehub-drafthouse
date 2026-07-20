@@ -1,5 +1,5 @@
-# Branch Closed: issue-94-data-model-mapping
+# Branch Closed: issue-99-live-workspace-watching
 
-**Date:** 2026-07-06
-**Issues:** 94
+**Date:** 2026-07-20
+**Issues:** 99
 **Status:** merged to main
