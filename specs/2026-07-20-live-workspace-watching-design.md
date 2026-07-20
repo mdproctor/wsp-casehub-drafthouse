@@ -24,7 +24,7 @@ from `progress.log` are pushed as metadata events on a separate topic.
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Trigger | Auto-detect in `load_workspace` | Single entry point — user doesn't need to know if the review is running or complete |
-| File watching | `io.methvin:directory-watcher` | Native macOS Carbon FS Events via JNA. Cross-platform. Already used in the ecosystem |
+| File watching | `io.methvin:directory-watcher:0.18.0` | Native macOS FSEvents via JNA. Cross-platform. Lightweight (no Vert.x/NIO2 polling fallback needed) |
 | Progress events | Separate metadata topic | Progress is transient operational status, not part of the review conversation. Keeps the debate feed clean |
 | Component boundary | New `WorkspaceWatcher` class | Different lifecycle from replay adapter (long-lived vs one-shot). Composes with existing parsing and dispatch infrastructure |
 | UI | New `<workspace-status>` topbar element | Dedicated to progress display. Context-gauge stays focused on token tracking |
@@ -51,20 +51,24 @@ New class: `io.casehub.drafthouse.debate.WorkspaceWatcher`
 
 **Responsibilities:**
 - Hold a `DirectoryWatcher` handle from `io.methvin:directory-watcher`
-- Track state: `lastReplayedRound`, `progressLogOffset`, `existingIssueIds`
+- Track state: `lastReplayedRound`, `progressLogOffset`, `existingIssueIds`,
+  `raiseMessageIds`, `lastMessageId`
 - On new response file: parse single round via WorkspaceParser, dispatch entries
+  via extracted `WorkspaceReplayAdapter` methods
 - On progress.log change: tail new lines, parse and push metadata events
 - On terminal state: stop watching, push completion event, remove from registry
 
 **Dependencies (constructor-injected):**
-- `MessageService` — dispatch channel messages
-- `InstanceService` — register senders
-- `ChannelGateway` — channel init (already done by replay)
+- `WorkspaceReplayAdapter` — dispatch individual round entries (shared with replay)
 - `WebSocketEventBus` — push debate entries and metadata to browser
-- `DebateSession` — the session being watched
+- `DebateSession` — the session being watched (senders obtained via
+  `session.instanceIdFor(AgentType.REV)` / `.IMP`)
+- `String tenancyId` — captured from the creating request context for CDI-free dispatch
 
 **Lifecycle:**
-- `start(Path workspacePath, int startFromRound, Set<String> existingIssueIds)` — begin watching
+- `start(Path workspacePath, int startFromRound, Set<String> existingIssueIds,
+  Map<String, Long> raiseMessageIds, long lastMessageId,
+  String projectRepoPath, String specPath)` — begin watching
 - `stop()` — close DirectoryWatcher, clean up
 - Implements `Closeable`
 
@@ -78,6 +82,46 @@ Expose per-round parsing methods as package-visible (currently private):
 
 No new public API. These are package-internal for WorkspaceWatcher.
 
+### WorkspaceReplayAdapter Refactoring
+
+The current `replay()` method (lines 53–285) is monolithic — it loops over all rounds
+and dispatches 6 entry types inline. The watcher needs to dispatch entries for
+individual rounds as they arrive. Refactor by extracting per-entry-type dispatch
+methods as package-visible instance methods:
+
+- `dispatchIssues(UUID channelId, String sender, ParsedRound round,
+  Map<String, Long> raiseMessageIds)` → updates `raiseMessageIds` in place
+- `dispatchResponses(UUID channelId, String sender, ParsedRound round,
+  Map<String, Long> raiseMessageIds)`
+- `dispatchConfirmations(UUID channelId, String sender, ParsedRound round,
+  Map<String, Long> raiseMessageIds)`
+- `dispatchMemos(UUID channelId, String sender, int roundNum,
+  List<String> assumptions, List<ParsedSettledDecision> settled)`
+- `dispatchDeferred(UUID channelId, String sender,
+  List<ParsedTrackerEntry> trackerStatuses, Map<String, Long> raiseMessageIds,
+  WorkspaceParseResult parseResult)`
+- `dispatchRoundSnapshot(UUID channelId, String sender, int round,
+  String commitHash, String documentPath, String label, Instant timestamp, String body)`
+  — already a private method, promote to package-visible
+
+`replay()` becomes a thin loop calling these methods. The watcher holds a
+`WorkspaceReplayAdapter` instance and calls the same methods for individual rounds.
+
+**`ReplayResult` extension:**
+
+```java
+public record ReplayResult(int entryCount,
+                            Map<String, String> statusDistribution,
+                            DocumentTimeline timeline,
+                            Map<Integer, String> snapshotContent,
+                            Map<String, Long> raiseMessageIds,
+                            long lastMessageId) {}
+```
+
+`raiseMessageIds` maps issue ID → Qhorus message ID (needed for `inReplyTo` on
+response entries). `lastMessageId` is the highest message ID after replay (needed
+for incremental WebSocket push).
+
 ### Active Watcher Registry
 
 `ConcurrentHashMap<String, WorkspaceWatcher>` field on `DebateMcpTools`, keyed by
@@ -86,8 +130,24 @@ debate session ID.
 - **Idempotency:** repeated `load_workspace` calls for the same workspace detect the
   existing watcher and return `"status":"already_watching"`
 - **Cleanup on completion:** watcher removes itself when terminal state detected
-- **Cleanup on end_debate:** `DebateMcpTools` checks map, stops watcher if present
-- **Server shutdown:** `@PreDestroy` closes all active watchers
+- **Cleanup on end_debate:** Before session removal in `endDebate()`, check
+  `activeWatchers.remove(channelId)` and call `watcher.stop()`. If `stop()` throws,
+  log the error and continue with remaining cleanup (deregister participants,
+  optionally delete channel). The watcher must stop before the session is removed from
+  the registry, since mid-dispatch callbacks reference the session.
+- **Server shutdown:** Add `@PreDestroy` method on `DebateMcpTools`:
+  ```java
+  @PreDestroy
+  void shutdown() {
+      activeWatchers.values().forEach(w -> {
+          try { w.stop(); } catch (Exception e) { LOG.warning("shutdown: " + e.getMessage()); }
+      });
+      activeWatchers.clear();
+  }
+  ```
+  `DebateMcpTools` is `@ApplicationScoped`, so `@PreDestroy` fires during CDI shutdown.
+  `DirectoryWatcher.close()` is safe to call during shutdown — it closes the underlying
+  watch service and cancels the watcher thread.
 
 ## File Watching — Event Flow
 
@@ -132,6 +192,19 @@ dispatches RAISE/CONFIRMATION/MEMO entries for round N. The watcher then starts 
 only needs to handle `implementor-N.md` when it appears. The watcher responds to
 file CREATE events — it never re-processes files that existed before watching started.
 
+**File completeness check:** The design-review PM writes JSONL files atomically
+(temp file + `os.rename()`), so CREATE events for `.jsonl` files always see complete
+content. Markdown response files are written by the `claude -p` agent in a single
+Write operation. As a safety measure, the watcher verifies that a markdown file
+contains a `SIGNAL:` line before parsing. If absent, the watcher retries after a
+500ms delay (max 3 retries) before treating the file as unparseable.
+
+**Catch-up reconciliation:** After the watcher starts, it immediately calls
+`WorkspaceParser.discoverMaxRound()` and compares against `lastReplayedRound`. Any
+rounds that appeared between replay's directory scan and watcher registration are
+processed immediately. This closes the TOCTOU window between replay completion and
+watcher start.
+
 ### Progress.log tailing
 
 On each MODIFY event for progress.log:
@@ -149,7 +222,7 @@ On each MODIFY event for progress.log:
 | `[HH:MM:SS]   Reviewer/Implementor done ($X.XX)` | `AGENT_COMPLETE` |
 | `[HH:MM:SS]   N new issue(s) raised` | `ISSUES_RAISED` |
 | `[HH:MM:SS]   Round N complete — ~$X.XX/round, $X.XX cumulative` | `ROUND_COMPLETE` |
-| `REVIEW DONE` / `REVIEW PAUSED` / `REVIEW FAILED` | `REVIEW_TERMINAL` |
+| `REVIEW DONE` / `REVIEW PAUSED` / `REVIEW FAILED` / `REVIEW ABORTED` / `REVIEW CRASHED: {error}` / `REVIEW INTERRUPTED` | `REVIEW_TERMINAL` |
 
 ### Metadata event payload
 
@@ -167,10 +240,28 @@ On each MODIFY event for progress.log:
 {"type": "REVIEW_TERMINAL", "finalState": "DONE"}
 ```
 
+### Incremental WebSocket push
+
+After dispatching entries for a new round, the watcher pushes only the new entries:
+
+```java
+var newMessages = messageService.pollAfter(channelId, lastMessageId, Integer.MAX_VALUE);
+var newEntries = newMessages.stream().map(DebateStreamEntry::from).filter(Objects::nonNull).toList();
+eventBus.pushDebateEntries(channelId, newEntries);
+lastMessageId = newMessages.isEmpty() ? lastMessageId
+    : newMessages.get(newMessages.size() - 1).id();
+```
+
+`lastMessageId` is initialised from `ReplayResult.lastMessageId()` at watcher start.
+
 ### Terminal state handling
 
-When `REVIEW DONE`, `REVIEW PAUSED`, or `REVIEW FAILED` is detected in progress.log:
-1. Push `REVIEW_TERMINAL` metadata event
+When any terminal state is detected in progress.log:
+- `REVIEW DONE`, `REVIEW PAUSED`, `REVIEW FAILED (exit N)`,
+  `REVIEW ABORTED`, `REVIEW CRASHED: {error}`, `REVIEW INTERRUPTED`
+
+Actions:
+1. Push `REVIEW_TERMINAL` metadata event with `finalState` field
 2. Call `stop()` — close DirectoryWatcher
 3. Remove from active watchers map in DebateMcpTools
 
@@ -187,17 +278,21 @@ boolean reviewComplete = isReviewComplete(wsPath);
 if (!reviewComplete) {
     int lastRound = parseResult.rounds().size();
     Set<String> existingIds = collectIssueIds(parseResult);
-    
-    var watcher = new WorkspaceWatcher(
-        messageService, instanceService, channelGateway, eventBus,
-        session, revSender, impSender);
-    watcher.start(wsPath, lastRound, existingIds);
+
+    var adapter = new WorkspaceReplayAdapter(
+        messageService, instanceService, channelGateway, eventBus);
+    var watcher = new WorkspaceWatcher(adapter, eventBus, session,
+        currentPrincipal.tenancyId());
+    watcher.start(wsPath, lastRound, existingIds,
+        result.raiseMessageIds(), result.lastMessageId(),
+        parseResult.projectRepoPath(), parseResult.specPath());
     activeWatchers.put(session.debateSessionId(), watcher);
 }
 ```
 
-`isReviewComplete()` reads the last few lines of progress.log and checks for
-`REVIEW DONE` / `REVIEW PAUSED` / `REVIEW FAILED`.
+`isReviewComplete()` reads the last few lines of progress.log and checks for any of
+the six terminal states: `REVIEW DONE`, `REVIEW PAUSED`, `REVIEW FAILED`,
+`REVIEW ABORTED`, `REVIEW CRASHED`, `REVIEW INTERRUPTED`.
 
 **Return value changes:**
 - Complete review: `"status":"loaded"` (unchanged)
@@ -207,10 +302,28 @@ if (!reviewComplete) {
 ## Thread Model
 
 - `DirectoryWatcher.watchAsync()` runs on its own thread (CompletableFuture)
-- Event callbacks fire on the watcher thread
-- `MessageService.dispatch()` is CDI-managed, thread-safe
+- Event callbacks fire on the watcher thread — a plain Java thread with no CDI context
 - `WebSocketEventBus` uses ConcurrentHashMap, `sendText()` via Mutiny subscribe — safe from any thread
 - No Vert.x event loop interaction — all dispatch is from a background thread
+
+**CDI context on watcher thread:** `MessageService.dispatch()` is `@Transactional`
+and accesses request-scoped beans (e.g. `CurrentPrincipal` for tenancy resolution).
+The watcher thread has no CDI request context. Solution:
+
+1. Capture `tenancyId` from the creating request context at watcher construction time
+2. Activate CDI request context around each callback:
+   ```java
+   var rc = Arc.container().requestContext();
+   rc.activate();
+   try {
+       // set tenancyId explicitly on all MessageDispatch builders
+       // parse round, dispatch entries, push WebSocket
+   } finally {
+       rc.deactivate();
+   }
+   ```
+3. All `MessageDispatch` builders include `.tenancyId(capturedTenancyId)` explicitly,
+   avoiding the `CurrentPrincipal` fallback path in `MessageService.dispatch()`
 
 ## UI — Workspace Status Element
 
@@ -246,10 +359,13 @@ default until the first `workspace-progress` event arrives. Cleaned up in
 <dependency>
     <groupId>io.methvin</groupId>
     <artifactId>directory-watcher</artifactId>
+    <version>0.18.0</version>
 </dependency>
 ```
 
-Added to `server/runtime/pom.xml`. Check Maven Central for latest version.
+Added to `server/runtime/pom.xml`. New dependency — not previously used in the
+platform. Chosen for native macOS FSEvents support via JNA (no polling), cross-platform
+compatibility, and minimal transitive dependencies.
 
 ## Testing Strategy
 
@@ -272,6 +388,7 @@ Added to `server/runtime/pom.xml`. Check Maven Central for latest version.
 - **Design-review script changes** — no POST-to-DraftHouse from the script side
 - **blocks-ui extraction** — all components are workspace-specific
 - **Checkpoint/decision files** — `checkpoint-N.md` and `decisions/` directory watching
-  can be added later if needed
+  (tracked as GitHub issue on drafthouse — to be filed at implementation time)
 - **Multiple simultaneous watchers** — the registry supports it, but no UI for
-  switching between watched workspaces (single active debate session model)
+  switching between watched workspaces (tracked as GitHub issue on drafthouse — to be
+  filed at implementation time)
