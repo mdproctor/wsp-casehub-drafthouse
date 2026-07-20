@@ -1,46 +1,46 @@
-# Handover — 2026-07-19
+# Handover — 2026-07-20
 
-**Branch:** `main` (#97 closed)
+**Branch:** `main` (#99 closed)
 
 ## What Happened This Session
 
-Research: chunked orchestration vs batch for design-review (#97). Built
-`--chunked` flag in soredium/design-review (review.py, tracker.py). Ran
-head-to-head comparison on same spec — both modes find same core issues,
-chunked produces deeper middle-tier fixes, costs 60% more per round.
+Implemented live workspace watching (#99) — extending `load_workspace` from
+one-shot replay to real-time monitoring of in-progress design reviews.
 
-Key soredium commits (on soredium main):
-- `get_focus_items_by_priority()` in tracker.py (4 tests)
-- `--chunked` flag + `_run_implementor_chunked()` in review.py (2 tests)
+New components:
+- `WorkspaceWatcher` — `io.methvin:directory-watcher` (native macOS FSEvents),
+  CDI context activation, processedFiles dedup with rollback, catch-up
+  reconciliation, progress.log tailing, terminal state detection
+- `ProgressLogParser` — sealed interface with 6 typed event records
+- `<workspace-status>` — Lit topbar element (elapsed timer, cost, agent status)
 
-Also: `adr-status.py --costs` for per-round cost reporting (~/adr repo).
+Refactored `WorkspaceReplayAdapter` — extracted 7 dispatch methods shared by
+both replay and watcher. Added `tenancyId` field for watcher thread CDI bypass.
+Extended `ReplayResult` with `raiseMessageIds` and `lastMessageId`.
 
-Two bugs found during comparison, not yet fixed:
-1. Prompt filename scoping — implementor writes to standard filename, chunked code expects chunk-specific filename
-2. Focus constraint ignored — HIGH chunk addresses all issues, not just HIGH
+Design review ran 8 rounds ($25.84) before implementation. Key catches: CDI
+context on watcher thread, TOCTOU race fix via processedFiles dedup,
+incremental WebSocket push, complete terminal state coverage.
 
-## Immediate Next Step
+142 tests pass (including 3 new WorkspaceWatcher tests + 16 ProgressLogParser
+tests + 1 new LoadWorkspaceTest).
 
-Pick from the backlog — all items are independent. The two chunked-mode bugs
-should be fixed before piloting `--chunked` on real reviews.
-
-## What's Next
+## Follow-up
 
 | # | Title | Scale | Complexity | Notes |
 |---|-------|-------|------------|-------|
-| #53 | Brainstorming UI slices 3-6 | S-M each | Low-Med | Slice 3: read-only panel, Slice 4: interactive injection, Slice 5: skill integration, Slice 6: convergence view |
-| #99 | Live workspace watching | M | Med | Can consume JSONL events directly |
-| #93 | Document workbench (epic) | XL | High | 5 remaining child issues |
-| #100 | Channel-based HIL | L | High | Blocked by #99 |
-| #101 | Panel extraction | XL | High | Blocked by all above |
-| — | Fix chunked-mode bugs (soredium) | S | Low | Prompt filename + focus constraint — prerequisite for pilot |
+| #110 | ROUND_SNAPSHOT + tracker diffing during live watching | S | Low | projectRepoPath/specPath fields already stored |
+| #53 | Brainstorming UI slices 3-6 | S-M each | Low-Med | Independent of #93 track |
+| #93 | Document workbench (epic) | XL | High | #100 now unblocked |
+| #100 | Channel-based HIL | L | High | Unblocked by #99 |
+| #101 | Panel extraction | XL | High | Blocked by #100 |
 
 ## References
 
 | Context | Where |
 |---------|-------|
-| Research report | specs/2026-07-18-chunked-orchestration-report.md |
-| Cross-issue analysis | specs/2026-07-18-cross-issue-analysis.md |
-| Blog entry | blog/2026-07-18-mdp27-chunking-the-implementor.md |
-| Comparison workspaces | ~/adr/casehub-drafthouse/batch-comparison-*/, chunked-comparison-*/ |
-| Soredium commits | ~/claude/hortora/soredium (design-review/review.py, tracker.py) |
+| Design spec | docs/specs/2026-07-20-live-workspace-watching-design.md |
+| Implementation plan | plans/attic/issue-99-live-workspace-watching/ (workspace) |
+| Design review workspace | ~/adr/casehub-drafthouse/live-workspace-watching-20260720-015431/ |
+| Blog entry | blog/2026-07-20-mdp28-watching-the-watcher.md |
+| Garden entry | GE-20260720-082267 (dedup rollback gotcha) |
