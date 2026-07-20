@@ -52,7 +52,8 @@ New class: `io.casehub.drafthouse.debate.WorkspaceWatcher`
 **Responsibilities:**
 - Hold a `DirectoryWatcher` handle from `io.methvin:directory-watcher`
 - Track state: `lastReplayedRound`, `progressLogOffset`, `existingIssueIds`,
-  `raiseMessageIds`, `lastMessageId`, `processedRounds` (dedup set),
+  `raiseMessageIds`, `lastMessageId`, `processedFiles` (dedup set, keyed by
+  filename stem e.g. `"reviewer-3"`, `"implementor-3"`),
   `previousTrackerStatuses` (for DEFERRED/evidence diffing)
 - On new response file: parse single round via WorkspaceParser, dispatch entries
   via extracted `WorkspaceReplayAdapter` methods
@@ -206,13 +207,15 @@ contains a `SIGNAL:` line before parsing. If absent, the watcher retries after a
 500ms delay (max 3 retries) before treating the file as unparseable.
 
 **Catch-up reconciliation and dedup:** The watcher maintains a
-`Set<Integer> processedRounds = ConcurrentHashMap.newKeySet()` to prevent duplicate
-processing. Both the async event handler and the catch-up scan guard processing with
-`processedRounds.add(roundNum)` — if it returns `false`, the round was already handled
-by the other thread. After the watcher starts, it immediately calls
+`Set<String> processedFiles = ConcurrentHashMap.newKeySet()` to prevent duplicate
+processing. The set is keyed by filename stem (e.g. `"reviewer-3"`, `"implementor-3"`)
+— not by round number, since each round has two independent files that must both be
+processed. Both the async event handler and the catch-up scan guard processing with
+`processedFiles.add(filenameStem)` — if it returns `false`, that specific file was
+already handled by the other thread. After the watcher starts, it immediately calls
 `WorkspaceParser.discoverMaxRound()` and compares against `lastReplayedRound`. Any
-gap rounds are processed (subject to the dedup guard). This closes the TOCTOU window
-without introducing duplicate entries.
+gap files are processed (subject to the dedup guard). This closes the TOCTOU window
+without introducing duplicate entries or dropping implementor responses.
 
 ### Progress.log tailing
 
