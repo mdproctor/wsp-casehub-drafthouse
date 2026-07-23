@@ -1,3 +1,5 @@
+*Updated: #53 closed — removed from backlog.*
+
 # Handover — 2026-07-23
 
 **Branch:** `main` (#53 closed)
@@ -39,7 +41,6 @@ ConversationFold, and ReviewChannelProjection (sender + createdAt fields added).
 |---|-------|-------|------------|-------|
 | #111 | Fix handler tests broken by blocks API change | S | Low | Pre-existing, not from #53 |
 | #112 | Playwright E2E test for brainstorm options panel | S | Low | Deferred from #53 |
-| #53 | First-principles challenge mode (item 2) | M | Med | Issue reopened for remaining slice |
 | #93 | Document workbench (epic) | XL | High | #100 next |
 | #100 | Channel-based HIL | L | High | Unblocked by #99 |
 
