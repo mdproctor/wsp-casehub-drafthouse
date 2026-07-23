@@ -1,46 +1,53 @@
-# Handover — 2026-07-20
+# Handover — 2026-07-23
 
-**Branch:** `main` (#99 closed)
+**Branch:** `main` (#53 closed)
 
 ## What Happened This Session
 
-Implemented live workspace watching (#99) — extending `load_workspace` from
-one-shot replay to real-time monitoring of in-progress design reviews.
+Implemented brainstorming UI (#53) — interactive option cards, session picker,
+and browser-initiated state changes for DraftHouse's brainstorm mode.
 
 New components:
-- `WorkspaceWatcher` — `io.methvin:directory-watcher` (native macOS FSEvents),
-  CDI context activation, processedFiles dedup with rollback, catch-up
-  reconciliation, progress.log tailing, terminal state detection
-- `ProgressLogParser` — sealed interface with 6 typed event records
-- `<workspace-status>` — Lit topbar element (elapsed timer, cost, agent status)
+- `BrainstormService` — CDI bean extracted from `BrainstormMcpTools`, owns all
+  mutation + event push logic with `synchronized (session)` thread safety
+- `BrainstormResource` — PATCH endpoint for browser-initiated status changes
+  (ELIMINATED, RECOMMENDED, SELECTED), GET for session list
+- `<brainstorm-options>` — Lit panel with interactive cards, status badges,
+  convergence summary, action buttons
+- `<brainstorm-picker>` — topbar session switcher dropdown
+- Layout wiring in `buildBrainstormLayout()` — terminal + options panel split,
+  `connectBrainstormSession()`, terminal-inject bridge for browser action notifications
 
-Refactored `WorkspaceReplayAdapter` — extracted 7 dispatch methods shared by
-both replay and watcher. Added `tenancyId` field for watcher thread CDI bypass.
-Extended `ReplayResult` with `raiseMessageIds` and `lastMessageId`.
+Domain model changes:
+- `BrainstormOption.transitionTo()` replaces `setStatus()` — guarded state
+  transitions with ELIMINATED/SELECTED as terminal states
+- `BrainstormSession.setRecommendation()` — single-recommendation enforcement,
+  clears previous by reverting to EXPLORED
 
-Design review ran 8 rounds ($25.84) before implementation. Key catches: CDI
-context on watcher thread, TOCTOU race fix via processedFiles dedup,
-incremental WebSocket push, complete terminal state coverage.
+Design review ran 4 rounds ($14.35) before implementation. Key catches: state
+transition guards, thread safety, PATCH endpoint style, WebSocket subscription
+wiring, session lifecycle handling.
 
-142 tests pass (including 3 new WorkspaceWatcher tests + 16 ProgressLogParser
-tests + 1 new LoadWorkspaceTest).
+Also fixed pre-existing blocks 0.2-SNAPSHOT API mismatches across ThreadEntry,
+ConversationFold, and ReviewChannelProjection (sender + createdAt fields added).
+
+546 of 549 tests pass (3 pre-existing handler test failures in #111).
 
 ## Follow-up
 
 | # | Title | Scale | Complexity | Notes |
 |---|-------|-------|------------|-------|
-| #110 | ROUND_SNAPSHOT + tracker diffing during live watching | S | Low | projectRepoPath/specPath fields already stored |
-| #53 | Brainstorming UI slices 3-6 | S-M each | Low-Med | Independent of #93 track |
-| #93 | Document workbench (epic) | XL | High | #100 now unblocked |
+| #111 | Fix handler tests broken by blocks API change | S | Low | Pre-existing, not from #53 |
+| #112 | Playwright E2E test for brainstorm options panel | S | Low | Deferred from #53 |
+| #53 | First-principles challenge mode (item 2) | M | Med | Issue reopened for remaining slice |
+| #93 | Document workbench (epic) | XL | High | #100 next |
 | #100 | Channel-based HIL | L | High | Unblocked by #99 |
-| #101 | Panel extraction | XL | High | Blocked by #100 |
 
 ## References
 
 | Context | Where |
 |---------|-------|
-| Design spec | docs/specs/2026-07-20-live-workspace-watching-design.md |
-| Implementation plan | plans/attic/issue-99-live-workspace-watching/ (workspace) |
-| Design review workspace | ~/adr/casehub-drafthouse/live-workspace-watching-20260720-015431/ |
-| Blog entry | blog/2026-07-20-mdp28-watching-the-watcher.md |
-| Garden entry | GE-20260720-082267 (dedup rollback gotcha) |
+| Design spec | docs/specs/2026-07-22-brainstorming-ui-design.md |
+| Implementation plan | docs/plans/2026-07-23-brainstorming-ui.md |
+| Design review workspace | ~/adr/casehub-drafthouse/brainstorming-ui-20260723-014452/ |
+| Blog entry | blog/2026-07-22-mdp29-making-brainstorming-visible.md |
