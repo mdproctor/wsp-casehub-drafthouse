@@ -1,5 +1,5 @@
-# Branch Closed: issue-94-data-model-mapping
+# Branch Closed: issue-111-fix-handler-tests-e2e
 
-**Date:** 2026-07-06
-**Issues:** 94
+**Date:** 2026-07-26
+**Issues:** 111,112
 **Status:** merged to main
