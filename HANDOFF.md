@@ -1,46 +1,28 @@
-*Updated: #53 closed — removed from backlog.*
+# Handover — 2026-07-26
 
-# Handover — 2026-07-23
-
-**Branch:** `main` (#53 closed)
+**Branch:** `main` (#111, #112 closed)
 
 ## What Happened This Session
 
-Implemented brainstorming UI (#53) — interactive option cards, session picker,
-and browser-initiated state changes for DraftHouse's brainstorm mode.
+Fixed 3 handler test failures (#111) — tests asserted against `systemPrompt()`
+but handlers correctly place dynamic content in `assembledInput()`. Wrote 6
+Playwright E2E tests for brainstorm options panel (#112) — card rendering,
+eliminate/recommend/select actions, convergence banner, summary counters.
 
-New components:
-- `BrainstormService` — CDI bean extracted from `BrainstormMcpTools`, owns all
-  mutation + event push logic with `synchronized (session)` thread safety
-- `BrainstormResource` — PATCH endpoint for browser-initiated status changes
-  (ELIMINATED, RECOMMENDED, SELECTED), GET for session list
-- `<brainstorm-options>` — Lit panel with interactive cards, status badges,
-  convergence summary, action buttons
-- `<brainstorm-picker>` — topbar session switcher dropdown
-- Layout wiring in `buildBrainstormLayout()` — terminal + options panel split,
-  `connectBrainstormSession()`, terminal-inject bridge for browser action notifications
+Unblocked @QuarkusTest execution by excluding stale ledger identity CDI beans
+(`quarkus.arc.exclude-types`) — cross-repo SNAPSHOT skew where platform-identity
+removed `ReactiveAgentIdentityVerificationService` but ledger still injects it (#113).
 
-Domain model changes:
-- `BrainstormOption.transitionTo()` replaces `setStatus()` — guarded state
-  transitions with ELIMINATED/SELECTED as terminal states
-- `BrainstormSession.setRecommendation()` — single-recommendation enforcement,
-  clears previous by reverting to EXPLORED
+Recovered 2 unrecovered artifacts from closed branches during hygiene scan
+(blog from #53, spec from #99).
 
-Design review ran 4 rounds ($14.35) before implementation. Key catches: state
-transition guards, thread safety, PATCH endpoint style, WebSocket subscription
-wiring, session lifecycle handling.
-
-Also fixed pre-existing blocks 0.2-SNAPSHOT API mismatches across ThreadEntry,
-ConversationFold, and ReviewChannelProjection (sender + createdAt fields added).
-
-546 of 549 tests pass (3 pre-existing handler test failures in #111).
+555 tests green, 0 failures.
 
 ## Follow-up
 
 | # | Title | Scale | Complexity | Notes |
 |---|-------|-------|------------|-------|
-| #111 | Fix handler tests broken by blocks API change | S | Low | Pre-existing, not from #53 |
-| #112 | Playwright E2E test for brainstorm options panel | S | Low | Deferred from #53 |
+| #113 | Exclude stale ledger identity CDI beans | XS | Low | Workaround applied; root fix is in casehub-ledger |
 | #93 | Document workbench (epic) | XL | High | #100 next |
 | #100 | Channel-based HIL | L | High | Unblocked by #99 |
 
@@ -48,7 +30,5 @@ ConversationFold, and ReviewChannelProjection (sender + createdAt fields added).
 
 | Context | Where |
 |---------|-------|
-| Design spec | docs/specs/2026-07-22-brainstorming-ui-design.md |
-| Implementation plan | docs/plans/2026-07-23-brainstorming-ui.md |
-| Design review workspace | ~/adr/casehub-drafthouse/brainstorming-ui-20260723-014452/ |
-| Blog entry | blog/2026-07-22-mdp29-making-brainstorming-visible.md |
+| Blog entry | blog/2026-07-24-mdp29-the-tests-that-pointed-wrong.md |
+| Garden entries | GE-20260724-f93ae3 (SNAPSHOT CDI skew), GE-20260724-a0c794 (arc exclude-types technique) |
