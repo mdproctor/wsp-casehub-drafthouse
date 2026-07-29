@@ -51,10 +51,29 @@ Extend the hooks in `statusAfter()`:
 - `"HUMAN_OVERRIDE"` → `"HUMAN_OVERRIDE"` (terminal)
 
 Override `apply()` to intercept `REPRIORITISE` before base class processing (same
-pattern as `ROUND_SNAPSHOT`). `REPRIORITISE` delegates to a new
-`ConversationFold.reprioritisePoint(state, pointId, newPriority)` method — the fold
-reads the existing point's classification, builds a new `PointClassification` with
-the updated priority (preserving scope and location), and returns updated state.
+pattern as `ROUND_SNAPSHOT`). The override parses the priority string from meta
+using `Priority.valueOf()` directly (note: `parsePriority()` is private in the
+base class and cannot be called from subclasses), then delegates to a new
+`ConversationFold.reprioritisePoint()` method:
+
+```java
+reprioritisePoint(state, pointId, messageId, messageType, sender, createdAt,
+                  role, round, newPriority, content)
+```
+
+The method:
+1. Returns state unchanged if `pointId` is not found
+2. Reads the existing point's `PointClassification`, builds a new one with
+   the updated `Priority` (preserving scope and location)
+3. Adds a `ThreadEntry` with `entryType="REPRIORITISE"` — records who changed
+   the priority, when, and why (content from the dispatch)
+4. Returns a new `ConversationState` with the updated point
+
+This matches the pattern of `respondToPoint()`: both update state AND leave a
+trace in the point's thread history. Without the ThreadEntry, priority changes
+would be invisible in the projected `ConversationState` that agents consume via
+`getDebateSummary` — agents would see the new priority but no record of the change.
+
 Wrapped in try-catch per PP-20260610-a47ef5.
 
 **Cross-module dependency:** Requires adding `reprioritisePoint()` to
@@ -133,8 +152,9 @@ MessageType: `DONE`.
 ```
 Dispatches `REPRIORITISE` entry. REST endpoint converts P1→HIGH, P2→MEDIUM,
 P3→LOW and stores using the standard `ConversationProtocol.PRIORITY` key in meta.
-The `apply()` override reads this with `parsePriority()` (same as point initiation).
-`inReplyTo` resolved via `findByCorrelationId`. MessageType: `RESPONSE`.
+The `apply()` override parses this via `Priority.valueOf(meta.get("priority").toUpperCase())`
+and passes the typed `Priority` to `reprioritisePoint()`. `inReplyTo` resolved via
+`findByCorrelationId`. MessageType: `RESPONSE`.
 
 **POST /api/debate/{id}/human/batch**
 ```json
