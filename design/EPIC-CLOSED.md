@@ -1,5 +1,5 @@
-# Branch Closed: issue-94-data-model-mapping
+# Branch Closed: issue-100-channel-based-hil
 
-**Date:** 2026-07-06
-**Issues:** 94
+**Date:** 2026-07-29
+**Issues:** 100
 **Status:** merged to main
