@@ -51,9 +51,15 @@ Extend the hooks in `statusAfter()`:
 - `"HUMAN_OVERRIDE"` → `"HUMAN_OVERRIDE"` (terminal)
 
 Override `apply()` to intercept `REPRIORITISE` before base class processing (same
-pattern as `ROUND_SNAPSHOT`). `REPRIORITISE` modifies `PointClassification` on the
-target point — builds a new `ConversationPoint` with updated priority, returns
-updated state. Wrapped in try-catch per PP-20260610-a47ef5.
+pattern as `ROUND_SNAPSHOT`). `REPRIORITISE` delegates to a new
+`ConversationFold.reprioritisePoint(state, pointId, newPriority)` method — the fold
+reads the existing point's classification, builds a new `PointClassification` with
+the updated priority (preserving scope and location), and returns updated state.
+Wrapped in try-catch per PP-20260610-a47ef5.
+
+**Cross-module dependency:** Requires adding `reprioritisePoint()` to
+`ConversationFold` in casehub-blocks (SNAPSHOT dependency). This follows the
+established pattern — every state mutation goes through ConversationFold methods.
 
 Update `DEBATE_CONFIG`:
 - `statusEmoji`: `"HUMAN_OVERRIDE" → "👤"`
@@ -63,8 +69,13 @@ Update `DEBATE_CONFIG`:
 
 ### DebateSession
 
-Add `volatile String workspacePath` field, set by `loadWorkspace` in `DebateMcpTools`.
-Null if no workspace loaded — file writing silently skipped.
+Add `volatile String workspacePath` field, set when a design-review workspace is
+associated with the session. Null if no workspace loaded — file writing silently
+skipped.
+
+Include `workspacePath` in `DebateSessionSnapshot` and restore it in
+`fromSnapshot()` for restart resilience — avoids silent loss of file-writing
+capability after server restart.
 
 Human participant registered lazily via `registerIfAbsent(HUMAN, ...)` on first
 action. Deregistered by existing `endDebate` cleanup (iterates `participants()`).
@@ -78,13 +89,12 @@ values automatically.
 
 New JAX-RS resource at `/api/debate/{id}/human`. All endpoints:
 1. Parse session UUID, resolve DebateSession (404 if missing)
-2. Register human sender lazily via `session.registerIfAbsent(HUMAN, ...)`
+2. Register human sender via `DebateParticipants.ensureSender(session, HUMAN, ...)`
 3. Derive current round from projected channel state (max round across points)
 4. Encode with `DebateProtocol.META_SENTINEL`
 5. Dispatch via `messageService.dispatch(...)` with `actorType(ActorType.HUMAN)`
-6. Project + push via WebSocket (trackAndPush pattern)
-7. Write to decisions file via `DecisionFileWriter`
-8. Return `200 {"status":"ok"}` or `400`/`404`
+6. Write to decisions file via `DecisionFileWriter`
+7. Return `200 {"status":"ok"}` or `400`/`404`
 
 ### Endpoints
 
@@ -121,8 +131,10 @@ MessageType: `DONE`.
 ```json
 { "pointId": "uuid", "newPriority": "P1|P2|P3" }
 ```
-Dispatches `REPRIORITISE` entry with `newPriority` in meta. `inReplyTo` resolved.
-MessageType: `RESPONSE`.
+Dispatches `REPRIORITISE` entry. REST endpoint converts P1→HIGH, P2→MEDIUM,
+P3→LOW and stores using the standard `ConversationProtocol.PRIORITY` key in meta.
+The `apply()` override reads this with `parsePriority()` (same as point initiation).
+`inReplyTo` resolved via `findByCorrelationId`. MessageType: `RESPONSE`.
 
 **POST /api/debate/{id}/human/batch**
 ```json
@@ -132,23 +144,44 @@ Dispatches one entry per pointId with the verdict as entry type. All with
 `actorType(ActorType.HUMAN)`, `role=HUMAN`. MessageType: `DONE` for VERIFIED,
 `DECLINE` for DEFERRED.
 
+### Input Validation
+
+All endpoints validate inputs and return 400 with a descriptive error:
+- Session UUID must be valid and resolve to an active session (404 if not)
+- `pointId` must reference an existing point in the projected state
+- `content` must be non-null and non-blank where required (comment, raise, override)
+- `priority` / `newPriority` must be one of P1, P2, P3
+- `verdict` must be one of VERIFIED, DEFERRED
+- `pointIds` must be non-empty for batch
+- `newPriority` must differ from the point's current priority
+- Override on an already-resolved point returns 409 (Conflict)
+
+Validation follows the same pattern as `DebateMcpTools` (parse enums, check session
+existence, validate point references via projected state).
+
 ### Dependencies
 
 Injected: `DebateSessionRegistry`, `MessageService`, `InstanceService`,
-`ProjectionService`, `DebateChannelProjection`, `WebSocketEventBus`,
-`DebateEventResource`, `DecisionFileWriter`.
+`ProjectionService`, `DebateChannelProjection`, `DecisionFileWriter`.
+
+WebSocket push is not needed — `DebateChannelBackend.post()` automatically converts
+dispatched messages to `DebateStreamEntry` and pushes via `eventBus.pushDebateEntries()`.
+Context tracking (`DebateEventResource`) is irrelevant for human actions.
 
 ### Round Derivation
 
 Human actions don't carry an explicit round. The resource projects the channel
-state (same fold as `trackAndPush`) and takes the max round number from point
-entries. Defaults to 1 if no entries exist.
+state via `ProjectionService` and takes the max round number from point entries.
+Defaults to 1 if no entries exist.
 
 ### sender() Pattern
 
-Not extracted from DebateMcpTools — replicated as the same 3-line pattern:
-`session.registerIfAbsent(HUMAN, () -> instanceService.register(id, desc, tags))`.
-The instance ID follows the existing convention: `"drafthouse-human-{sessionId}"`.
+Extracted to `DebateParticipants.ensureSender(session, role, instanceService, registry)`:
+a package-private static utility method in the runtime module, shared by both
+`DebateMcpTools` and `HumanActionResource`. The method registers the instance via
+`registerIfAbsent()`, using the existing `DebateSession.instanceId()` convention,
+and persists the session via `registry.persist()` on first registration. Without
+the persist call, new participants don't survive restart via `fromSnapshot()`.
 
 ## Decisions File Writer
 
@@ -166,7 +199,8 @@ decisionFileWriter.append(workspacePath, round, section, pointId, content)
 - Appends entry under the correct `## Section` heading (Comments, Overrides,
   New Points, Priority Changes, Batch Decisions)
 - Section heading written once per type per round (on first entry of that type)
-- Synchronous file I/O (human actions are low-frequency)
+- Synchronous file I/O with `synchronized` on the round file path — prevents
+  interleaving when batch operations dispatch multiple entries concurrently
 - Silently skipped if `session.workspacePath()` is null
 
 ### File Format
@@ -209,7 +243,9 @@ The watcher's `RESPONSE_FILE` pattern matches `reviewer-round-N.md` and
 
 ### Channel Feed (`<channel-feed>`)
 
-- `AGENT_LABELS`: add `HUMAN → "Human"`
+- `AGENT_LABELS`: add `HUMAN → "Human"`, `SUPERVISOR → "Supervisor"`,
+  `MODERATOR → "Moderator"`, `SELECTOR → "Selector"`. Remove stale `FAC` entry
+  (no corresponding `AgentType` value).
 - `ENTRY_TYPE_LABELS`: add `COMMENT → "commented"`, `HUMAN_OVERRIDE → "overrode"`,
   `REPRIORITISE → "reprioritised"`
 - Human entries get a distinct badge colour (warm accent, not agent blue/green)
@@ -225,7 +261,8 @@ The watcher's `RESPONSE_FILE` pattern matches `reviewer-round-N.md` and
 - `RESOLVED_STATUSES`: add `"HUMAN_OVERRIDE"`
 - `ACTION_SHORT`: add `COMMENT → "commented"`, `HUMAN_OVERRIDE → "overrode"`,
   `REPRIORITISE → "reprioritised"`
-- `AGENT_SHORT`: add `HUMAN → "HUM"`
+- `AGENT_SHORT`: add `HUMAN → "HUM"`, `SUPERVISOR → "SUP"`, `MODERATOR → "MOD"`,
+  `SELECTOR → "SEL"`. Remove stale `FAC` entry.
 - **Action buttons per unresolved point:**
   - 💬 Comment — inline text input below the point
   - 👤 Override — dropdown with reason field
@@ -262,7 +299,8 @@ The watcher's `RESPONSE_FILE` pattern matches `reviewer-round-N.md` and
 ## Out of Scope
 
 - **design-review skill changes** — reading `decisions/`, prompt updates (soredium,
-  separate approval required)
+  separate approval required). Tracked as GitHub issue on soredium repo. Issue #100
+  remains open until soredium work lands (acceptance criteria 3 and 7 depend on it).
 - **Authentication** — DraftHouse runs locally, consistent with existing endpoints
 - **Human action persistence beyond channel + decisions/ files** — channel projection
   already persists ConversationState
