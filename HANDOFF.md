@@ -1,34 +1,37 @@
-# Handover — 2026-07-26
+# Handover — 2026-07-29
 
-**Branch:** `main` (#111, #112 closed)
+**Branch:** `main` (#100 closed)
 
 ## What Happened This Session
 
-Fixed 3 handler test failures (#111) — tests asserted against `systemPrompt()`
-but handlers correctly place dynamic content in `assembledInput()`. Wrote 6
-Playwright E2E tests for brainstorm options panel (#112) — card rendering,
-eliminate/recommend/select actions, convergence banner, summary counters.
+Implemented channel-based HIL (#100) — concurrent human participation in
+adversarial debates. Full brainstorm → design review ($12.91, 16 issues) →
+7-task implementation → code review → squash → push.
 
-Unblocked @QuarkusTest execution by excluding stale ledger identity CDI beans
-(`quarkus.arc.exclude-types`) — cross-repo SNAPSHOT skew where platform-identity
-removed `ReactiveAgentIdentityVerificationService` but ledger still injects it (#113).
+New `HumanActionResource` with 5 REST endpoints (comment, raise, override,
+prioritise, batch). Three new entry types (COMMENT, HUMAN_OVERRIDE,
+REPRIORITISE) with projection support. `DecisionFileWriter` bridges to
+design-review workspace via `decisions/human-round-{n}.md`. UI panels
+updated with action buttons, human badge, and batch accept bar.
 
-Recovered 2 unrecovered artifacts from closed branches during hygiene scan
-(blog from #53, spec from #99).
+Cross-repo: `ConversationFold.reprioritisePoint()` added to casehub-blocks.
+Also fixed pre-existing eidos SNAPSHOT API breaks in SimplePromptRenderer,
+DraftHouseMcpTools, and ReviewerDescriptorSeederTest.
 
-555 tests green, 0 failures.
+578 tests green, 0 failures.
 
 ## Follow-up
 
 | # | Title | Scale | Complexity | Notes |
 |---|-------|-------|------------|-------|
 | #113 | Exclude stale ledger identity CDI beans | XS | Low | Workaround applied; root fix is in casehub-ledger |
-| #93 | Document workbench (epic) | XL | High | #100 next |
-| #100 | Channel-based HIL | L | High | Unblocked by #99 |
+| #93 | Document workbench (epic) | XL | High | #100 now closed; next piece TBD |
+| — | design-review skill reads decisions/ | M | Med | soredium change — agents read human decisions at round start |
 
 ## References
 
 | Context | Where |
 |---------|-------|
-| Blog entry | blog/2026-07-24-mdp29-the-tests-that-pointed-wrong.md |
-| Garden entries | GE-20260724-f93ae3 (SNAPSHOT CDI skew), GE-20260724-a0c794 (arc exclude-types technique) |
+| Blog entry | blog/2026-07-29-mdp30-the-human-in-the-channel.md |
+| Design spec | docs/specs/issue-100-channel-based-hil/2026-07-29-channel-based-hil-design.md |
+| Design review | ~/adr/casehub-drafthouse/channel-based-hil-20260729-182103/ |
