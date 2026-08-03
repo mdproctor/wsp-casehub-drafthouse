@@ -1,5 +1,5 @@
-# Branch Closed: issue-94-data-model-mapping
+# Branch Closed: issue-101-extract-document-panels
 
-**Date:** 2026-07-06
-**Issues:** 94
+**Date:** 2026-08-03
+**Issues:** 101
 **Status:** merged to main
