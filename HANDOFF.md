@@ -1,37 +1,36 @@
-# Handover — 2026-07-29
+# Handover — 2026-08-03
 
-**Branch:** `main` (#100 closed)
+**Branch:** `main` (#101 closed, #113 closed)
 
 ## What Happened This Session
 
-Implemented channel-based HIL (#100) — concurrent human participation in
-adversarial debates. Full brainstorm → design review ($12.91, 16 issues) →
-7-task implementation → code review → squash → push.
+Fixed #113 (stale ledger CDI bean exclusion — workaround removed, root cause
+already fixed in ledger's reactive tier retirement). Filed and closed
+casehubio/ledger#182.
 
-New `HumanActionResource` with 5 REST endpoints (comment, raise, override,
-prioritise, batch). Three new entry types (COMMENT, HUMAN_OVERRIDE,
-REPRIORITISE) with projection support. `DecisionFileWriter` bridges to
-design-review workspace via `decisions/human-round-{n}.md`. UI panels
-updated with action buttons, human badge, and batch accept bar.
+Implemented #101 — extracted all 9 DraftHouse Lit panels to
+`@casehubio/blocks-ui-document-workbench`. Convergence analysis confirmed
+neither `blocks-channel-feed` nor `blocks-timeline` overlap with the
+drafthouse panels. Panels adapted with pages CSS tokens, `apiBaseUrl`
+property, `channel-feed` → `debate-feed` rename. Showcase gallery added
+to blocks-ui examples. DraftHouse migrated to consumer via esbuild alias.
+578 E2E tests green, 31 vitest tests in blocks-ui.
 
-Cross-repo: `ConversationFold.reprioritisePoint()` added to casehub-blocks.
-Also fixed pre-existing eidos SNAPSHOT API breaks in SimplePromptRenderer,
-DraftHouseMcpTools, and ReviewerDescriptorSeederTest.
-
-578 tests green, 0 failures.
+Garden entry: GE-20260803-1f9860 — jsdom/ResizeObserver gotcha for Lit
+component testing in vitest.
 
 ## Follow-up
 
 | # | Title | Scale | Complexity | Notes |
 |---|-------|-------|------------|-------|
-| #113 | Exclude stale ledger identity CDI beans | XS | Low | Workaround applied; root fix is in casehub-ledger |
-| #93 | Document workbench (epic) | XL | High | #100 now closed; next piece TBD |
+| #93 | Document workbench (epic) | XL | High | All 8 children now closed — epic ready to close |
 | — | design-review skill reads decisions/ | M | Med | soredium change — agents read human decisions at round start |
+| — | Unrecovered specs on 14 closed branches | S | Low | Hygiene scan flagged `research.md` files; cherry-pick if needed |
 
 ## References
 
 | Context | Where |
 |---------|-------|
-| Blog entry | blog/2026-07-29-mdp30-the-human-in-the-channel.md |
-| Design spec | docs/specs/issue-100-channel-based-hil/2026-07-29-channel-based-hil-design.md |
-| Design review | ~/adr/casehub-drafthouse/channel-based-hil-20260729-182103/ |
+| Blog entry | blog/2026-08-03-mdp31-panels-leave-home.md |
+| Design spec | docs/specs/issue-101-extract-document-panels/2026-07-30-document-workbench-extraction-design.md |
+| blocks-ui commits | casehubio/blocks-ui main (5 commits, document-workbench package) |
