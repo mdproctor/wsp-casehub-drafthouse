@@ -50,16 +50,19 @@ Live progress (workspace-status) runs continuously across all phases.
 
 ### Degree Degradation
 
-Phase 1 always runs at light degree (reviewer-only, 1 round) regardless of the
-selected degree. This ensures the human sees findings before any implementor
-runs. Phase 2 resumes at the selected degree for the remaining rounds.
+Phase 1 runs at the selected degree with `--max-rounds 1`. This preserves the
+full budget and ultrathink settings — round 1 is where issues are found, so it
+gets the quality the user asked for. At non-light degrees, the implementor runs
+too, giving the human richer context at the HIL gate ("5 found, 3 addressed, 2
+contested" vs just "5 found"). Phase 2 resumes at the same degree for remaining
+rounds.
 
 | Degree | Phase 1 | Phase 2 | Phase 3 |
 |--------|---------|---------|---------|
 | Light (1 round, no implementor) | Round 1 reviewer-only | Skipped — nothing to continue | Optional cross-cutting |
-| Standard (2-3 rounds) | Round 1 reviewer-only | Resume at standard, rounds 2-3 | Cross-cutting |
-| Adversarial (4-6 rounds) | Round 1 reviewer-only | Resume at adversarial, rounds 2-6 | Cross-cutting |
-| Deep (8-10 rounds) | Round 1 reviewer-only | Resume at deep, rounds 2-10 | Cross-cutting |
+| Standard (2-3 rounds) | Round 1 (reviewer + implementor) | Resume, rounds 2-3 | Cross-cutting |
+| Adversarial (4-6 rounds) | Round 1 (reviewer + implementor) | Resume, rounds 2-6 | Cross-cutting |
+| Deep (8-10 rounds) | Round 1 (reviewer + implementor, ultrathink) | Resume, rounds 2-10 | Cross-cutting |
 
 Light naturally collapses to two HIL points (round 1 results → cross-cutting
 decision). No special-casing needed — phase 1 IS the entire review at light.
@@ -69,14 +72,16 @@ decision). No special-casing needed — phase 1 IS the entire review at light.
 ### Phase 1 — Round 1 Exploration
 
 ```bash
-python3 review.py --spec X --title Y-coherence --type coherence --degree light --source-dirs ...
-python3 review.py --spec X --title Y-structure --type structure --degree light --source-dirs ...
-python3 review.py --spec X --title Y-robustness --type robustness --degree light --source-dirs ...
+python3 review.py --spec X --title Y-coherence --type coherence --degree Z --max-rounds 1 --source-dirs ...
+python3 review.py --spec X --title Y-structure --type structure --degree Z --max-rounds 1 --source-dirs ...
+python3 review.py --spec X --title Y-robustness --type robustness --degree Z --max-rounds 1 --source-dirs ...
 ```
 
-Three parallel background launches. Always `--degree light` (reviewer-only, 1
-round) regardless of the user's selected degree. Each process exits with
-`REVIEW DONE` after the single reviewer pass.
+Three parallel background launches. Uses the selected degree (`Z`) with
+`--max-rounds 1` to cap at one round while preserving the full budget and
+ultrathink settings. At light degree, the implementor is skipped (existing
+behavior). At other degrees, the implementor runs after the reviewer,
+giving richer findings context at the HIL gate.
 
 The calling session receives background task completion notifications. When all
 three have completed, it reads each workspace's tracker.md and presents results
@@ -95,8 +100,9 @@ python3 review.py --workspace <robustness-workspace-path> --degree Z --source-di
 
 Only dimensions the human accepted. Uses `--workspace <path>` to resume from
 phase 1's workspace — review.py's existing resume mechanism detects the
-completed round from tracker state and continues from round 2. The selected
-degree (`Z`) is passed here, overriding the light degree used in phase 1.
+completed round from tracker state and continues from round 2. The degree
+is already saved from phase 1 (which used the selected degree), so resume
+picks it up automatically.
 
 Session continuity is handled internally by review.py — the calling session
 does not manage session IDs. If the prior session expired (human took a long
@@ -241,7 +247,7 @@ and the selected degree.
 | Component | What changes |
 |-----------|-------------|
 | **SKILL.md** | New three-phase orchestration flow. Phase transitions driven by background task notifications. Single fallback cron for stall/failure monitoring. HIL prompt logic between phases. |
-| **review.py** | New JSONL events for dimension lifecycle. Support `--degree` override on `--workspace` resume (use phase 2's degree instead of phase 1's persisted light degree). |
+| **review.py** | New JSONL events for dimension lifecycle. No degree override needed — phase 1 uses the selected degree with `--max-rounds 1`, so the saved `.depth` already matches. |
 | **setup.py** | No changes. |
 | **prompts.py** | No changes. |
 | **tracker.py** | No changes. |
