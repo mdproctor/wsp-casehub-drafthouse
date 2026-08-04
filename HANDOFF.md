@@ -1,38 +1,35 @@
-# Handover — 2026-08-03
+# Handover — 2026-08-04
 
-**Branch:** `main` (#109, #110, #101, #113 closed this session)
+**Branch:** `main` (#60 closed this session)
 
 ## What Happened This Session
 
-Four issues closed across two branches:
+Implemented selection-scoped conversation channels (#60) — persistent
+conversation threads anchored to document selections. Full stack:
+domain model (SelectionThread, ThreadStatus, ThreadEntry), ThreadProjection,
+ThreadMcpTools (4 MCP tools), REST endpoints, ThreadStreamEntry with
+thread-aware WebSocket routing, `<selection-threads>` Lit panel with
+thread list/detail views, diff panel gutter markers with bidirectional
+navigation. Design reviewed (light, 4 dimensions), code reviewed.
 
-**Branch 1 (issue-101):** Extracted all 9 DraftHouse Lit panels to
-`@casehubio/blocks-ui-document-workbench` with showcase gallery. DraftHouse
-migrated to consumer. Epic #93 closed (all 8 children done). #84 and #106
-also closed (completed/superseded).
-
-**Branch 2 (issue-109):** #109 investigated — chunk boundary awareness adds
-no benefit (reviewer already assigns priorities that drive chunking). #110
-implemented — WorkspaceWatcher now dispatches DEFERRED entries and evidence
-MEMOs via tracker diffing, plus ROUND_SNAPSHOT when spec commit found.
-
-Garden entry: GE-20260803-1f9860 (jsdom/ResizeObserver gotcha).
+Garden entry: GE-20260804-0e809e (thread-as-metadata-partition technique).
+Protocol: PP-20260804-4a1c9e (thread-action-vocabulary).
 
 ## Follow-up
 
 | # | Title | Scale | Complexity | Notes |
 |---|-------|-------|------------|-------|
-| #108 | Explore context-aware chunking | M | High | Was blocked by #109 (now closed) |
+| #108 | Explore context-aware chunking | M | High | Unblocked — #109 closed last session |
 | #72 | Review pipeline orchestration | L | High | Sequential multi-perspective reviews |
 | #71 | Claude-to-Claude conversation protocol | L | High | Multi-turn agent dialogue |
 | #61 | GraalVM native image build | M | Med | Paused |
-| #60 | Selection-scoped conversation channels | M | Med | Persistent per-selection threads |
 | — | design-review skill reads decisions/ | M | Med | soredium change |
 
 ## References
 
 | Context | Where |
 |---------|-------|
-| Blog (panels) | blog/2026-08-03-mdp31-panels-leave-home.md |
-| blocks-ui package | casehubio/blocks-ui components/document-workbench/ |
-| Design spec (#101) | docs/specs/issue-101-extract-document-panels/ |
+| Design spec (#60) | docs/specs/issue-60-selection-scoped-channels/ |
+| Thread protocol | docs/protocols/thread-action-vocabulary.md |
+| Garden entry | GE-20260804-0e809e (jvm/thread-as-metadata-partition) |
+| blocks-ui changes | casehubio/blocks-ui components/document-workbench/ |
