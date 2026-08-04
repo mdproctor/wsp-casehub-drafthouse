@@ -38,48 +38,70 @@ Degree ──► Phase 1 (round 1) ──► HIL ──► Phase 2 (remaining ro
                               dimension
 ```
 
-Each phase follows the same pattern: launch N review.py processes → watchdog
-monitors progress.log → all complete → present results → human decides → next
-phase.
+Each phase follows the same pattern: launch N review.py processes as background
+tasks → calling session receives completion notifications → present results →
+human decides → next phase.
+
+A cron watchdog runs as a fallback monitor for stall detection and failure
+handling, but phase transitions are driven by background task completion
+notifications in the calling session — not by the cron.
 
 Live progress (workspace-status) runs continuously across all phases.
 
 ### Degree Degradation
 
+Phase 1 always runs at light degree (reviewer-only, 1 round) regardless of the
+selected degree. This ensures the human sees findings before any implementor
+runs. Phase 2 resumes at the selected degree for the remaining rounds.
+
 | Degree | Phase 1 | Phase 2 | Phase 3 |
 |--------|---------|---------|---------|
-| Light (1 round, no implementor) | Round 1 only | Skipped — nothing to continue | Optional cross-cutting |
-| Standard (2-3 rounds) | Round 1 | Rounds 2-3 | Cross-cutting |
-| Adversarial (4-6 rounds) | Round 1 | Rounds 2-6 | Cross-cutting |
-| Deep (8-10 rounds) | Round 1 | Rounds 2-10 | Cross-cutting |
+| Light (1 round, no implementor) | Round 1 reviewer-only | Skipped — nothing to continue | Optional cross-cutting |
+| Standard (2-3 rounds) | Round 1 reviewer-only | Resume at standard, rounds 2-3 | Cross-cutting |
+| Adversarial (4-6 rounds) | Round 1 reviewer-only | Resume at adversarial, rounds 2-6 | Cross-cutting |
+| Deep (8-10 rounds) | Round 1 reviewer-only | Resume at deep, rounds 2-10 | Cross-cutting |
 
 Light naturally collapses to two HIL points (round 1 results → cross-cutting
-decision). No special-casing needed.
+decision). No special-casing needed — phase 1 IS the entire review at light.
 
 ## Phase Orchestration
 
 ### Phase 1 — Round 1 Exploration
 
 ```bash
-python3 review.py --spec X --title Y-coherence --type coherence --degree Z --max-rounds 1 --source-dirs ...
-python3 review.py --spec X --title Y-structure --type structure --degree Z --max-rounds 1 --source-dirs ...
-python3 review.py --spec X --title Y-robustness --type robustness --degree Z --max-rounds 1 --source-dirs ...
+python3 review.py --spec X --title Y-coherence --type coherence --degree light --source-dirs ...
+python3 review.py --spec X --title Y-structure --type structure --degree light --source-dirs ...
+python3 review.py --spec X --title Y-robustness --type robustness --degree light --source-dirs ...
 ```
 
-Three parallel background launches. Watchdog cron monitors for `ROUND 1 DONE`
-(or `REVIEW DONE` for light degree) in each progress.log. When all three fire,
-the watchdog presents results and pauses for HIL.
+Three parallel background launches. Always `--degree light` (reviewer-only, 1
+round) regardless of the user's selected degree. Each process exits with
+`REVIEW DONE` after the single reviewer pass.
+
+The calling session receives background task completion notifications. When all
+three have completed, it reads each workspace's tracker.md and presents results
+for HIL.
+
+The calling session captures the workspace path from each process's progress.log
+(printed at startup as `Review (<type>): <workspace-path>`). These paths are
+passed explicitly to phase 2 — no title-based resolution needed.
 
 ### Phase 2 — Depth Pursuit (surviving dimensions only)
 
 ```bash
-python3 review.py --spec X --title Y-coherence --type coherence --degree Z --start-round 2 --resume-session <id> --source-dirs ...
-python3 review.py --spec X --title Y-robustness --type robustness --degree Z --start-round 2 --resume-session <id> --source-dirs ...
+python3 review.py --workspace <coherence-workspace-path> --degree Z --source-dirs ...
+python3 review.py --workspace <robustness-workspace-path> --degree Z --source-dirs ...
 ```
 
-Only dimensions the human accepted. `--start-round 2` and `--resume-session`
-pick up from where phase 1 left off, reusing the same workspace and session.
-Watchdog monitors for `REVIEW DONE`.
+Only dimensions the human accepted. Uses `--workspace <path>` to resume from
+phase 1's workspace — review.py's existing resume mechanism detects the
+completed round from tracker state and continues from round 2. The selected
+degree (`Z`) is passed here, overriding the light degree used in phase 1.
+
+Session continuity is handled internally by review.py — the calling session
+does not manage session IDs. If the prior session expired (human took a long
+break at the HIL checkpoint), review.py's existing session-window mechanism
+generates a handover and starts a fresh session.
 
 ### Phase 3 — Cross-cutting (if approved)
 
@@ -87,16 +109,21 @@ Watchdog monitors for `REVIEW DONE`.
 python3 review.py --spec X --title Y-crosscutting --type crosscutting --degree Z --arch-files <trackers...> --source-dirs ...
 ```
 
-Same as today. Launched only if the human says go at HIL point 3.
+Same as today. Launched only if the human says go at HIL point 3. The
+`--arch-files` paths are the tracker.md files from each surviving dimension's
+workspace (captured in phase 1, filtered by HIL decisions).
 
-### New review.py Flags
+### No New review.py Flags
 
-- `--start-round N` — skip rounds 1 through N-1, begin the loop at round N
-- `--resume-session <id>` — reuse the claude session from phase 1 for
-  conversation continuity
+The phased model requires no new CLI flags. It uses existing mechanisms:
+
+- `--degree light` — phase 1 runs reviewer-only (already exists)
+- `--workspace <path>` — phase 2 resumes from phase 1's workspace (already exists)
+- `--degree Z` on resume — overrides the degree for remaining rounds
 
 The workspace directory, tracker.md, and response files persist across phases —
-phase 2 reads phase 1's tracker and continues from that state.
+phase 2 reads phase 1's tracker and continues from that state. review.py manages
+reviewer and implementor session IDs internally.
 
 ## HIL Interaction Model
 
@@ -105,7 +132,7 @@ interaction. The human never talks directly to review.py.
 
 ### After Phase 1 — Round 1 Findings
 
-The watchdog reads each dimension's tracker.md and presents a summary:
+The calling session reads each dimension's tracker.md and presents a summary:
 
 ```
 Round 1 findings:
@@ -115,14 +142,21 @@ Round 1 findings:
   Robustness: 5 issues (2 HIGH, 1 MEDIUM, 2 LOW)
 ```
 
-Four actions available:
-- **Accept all** — all dimensions continue to phase 2
+Dimensions with zero issues are flagged — they found nothing to iterate on and
+are candidates for automatic exclusion from phase 2.
+
+Four actions available (only if selected degree is not light — light has no
+phase 2):
+- **Accept all** — all dimensions with findings continue to phase 2
 - **Refuse all** — stop everything, skip to cross-cutting decision (or end)
 - **Refuse subset** — kill selected dimensions (multi-select of dimensions to
   stop; others continue)
 - **Discuss** — human asks about specific findings before deciding. The calling
   session reads the relevant tracker entries and discusses. After discussion,
   the same four options re-present.
+
+At light degree, phase 1 IS the complete review — the HIL presents findings
+and proceeds directly to the pre-cross-cutting gate.
 
 ### After Phase 2 — Pre-cross-cutting
 
@@ -155,16 +189,17 @@ consumes.
 
 | Event | When | Payload |
 |-------|------|---------|
-| `dimension_start` | Phase 1 launch | dimension, degree, max_rounds |
-| `round_start` | Each round begins | dimension, round_number, phase |
+| `dimension_start` | Process launch | dimension, degree, phase (1 or 2) |
+| `round_start` | Each round begins | dimension, round_number |
 | `round_findings` | Reviewer completes | dimension, round_number, issue_count by priority |
 | `round_end` | Implementor completes (or skipped) | dimension, round_number, addressed/contested counts |
-| `dimension_paused` | Phase 1 round 1 complete | dimension, awaiting_hil: true |
-| `dimension_resumed` | Phase 2 start | dimension, remaining_rounds |
-| `dimension_killed` | Human refused | dimension, reason: "hil_refused" |
-| `dimension_done` | All rounds complete | dimension, total_rounds, cost, issue_summary |
+| `dimension_done` | Process exits normally | dimension, total_rounds, cost, issue_summary |
 | `crosscutting_start` | Phase 3 launch | arch_files list |
 | `crosscutting_done` | Phase 3 complete | findings_count, cost |
+
+Phase transitions (paused/resumed/killed) are managed by the calling session,
+not by review.py events. The calling session tracks which dimensions were
+accepted or refused at HIL and only launches phase 2 for accepted ones.
 
 The workspace-status panel renders these as:
 
@@ -180,43 +215,40 @@ No new UI component needed — workspace-status consumes the richer event data.
 
 ### What Persists Across Phases
 
-- The claude session (conversation history with reviewer/implementor agents)
 - The workspace directory (tracker.md, response files, context.md)
 - The issue state machine (which issues are OPEN, ADDRESSED, etc.)
+- Claude session IDs (managed internally by review.py, not by the calling session)
 
 ### Mechanism
 
-Phase 1 completes with `--max-rounds 1`. The session ID is written to a
-`.session` file in the workspace. Phase 2 reads it back via
-`--resume-session <id>`.
+The calling session captures each dimension's workspace path from phase 1's
+progress.log output. Phase 2 passes this path via `--workspace <path>` —
+no title-based resolution or timestamp matching needed.
 
-The workspace directory is the same across both phases — review.py is given the
-same `--title`, so it resolves to the same
-`~/reviews/{project}/{title}-{dimension}-{timestamp}/` path. tracker.md,
-response files, and context.md are all in place when phase 2 starts.
+review.py's existing `--workspace` resume mechanism:
+1. Reads tracker.md to determine the last completed round
+2. Recovers reviewer and implementor session IDs from internal state
+3. Continues the round loop from the next round
+4. If a session has expired, falls back to the existing session-window
+   handover mechanism (generates handover from tracker + responses, starts
+   fresh)
 
-`--start-round 2` tells review.py to skip the initial reviewer invocation for
-round 1 (already done) and begin the loop at round 2. The tracker already has
-round 1 data, so the round 2 reviewer sees the prior state naturally.
-
-### Session Expiry Fallback
-
-If the human takes a long time at the HIL checkpoint, the claude session may
-expire. `--resume-session` would fail. Fallback: review.py detects the failure,
-generates a handover from tracker.md + round 1 responses, and starts a fresh
-session with that context. Same mechanism as the existing session-window
-boundary, triggered by resume failure rather than round count.
+The calling session never manages session IDs. It only passes workspace paths
+and the selected degree.
 
 ## Changes Summary
 
 | Component | What changes |
 |-----------|-------------|
-| **SKILL.md** | New three-phase orchestration flow. Three watchdog cycles instead of one. HIL prompt logic between phases. |
-| **review.py** | Two new CLI flags: `--start-round N`, `--resume-session <id>`. Session ID written to `.session` file. Resume failure fallback. New JSONL events. |
+| **SKILL.md** | New three-phase orchestration flow. Phase transitions driven by background task notifications. Single fallback cron for stall/failure monitoring. HIL prompt logic between phases. |
+| **review.py** | New JSONL events for dimension lifecycle. Support `--degree` override on `--workspace` resume (use phase 2's degree instead of phase 1's persisted light degree). |
 | **setup.py** | No changes. |
 | **prompts.py** | No changes. |
 | **tracker.py** | No changes. |
 | **parser.py** | No changes. |
+
+No new CLI flags are introduced. The phased model uses existing `--degree`,
+`--workspace`, and `--max-rounds` flags.
 
 ### Not Changing
 
@@ -225,6 +257,7 @@ boundary, triggered by resume failure rather than round count.
 - The cross-cutting mechanism (reads tracker.md files via --arch-files)
 - Degree presets (round counts, budgets, ultrathink)
 - The workspace directory structure
+- Session management internals in review.py
 
 ## Prior Art
 
@@ -233,8 +266,8 @@ boundary, triggered by resume failure rather than round count.
   analysis. The phased model builds on this finding — round 1 isolation is safe
   because issues rarely depend on each other across priority tiers or dimensions.
 - **Existing `--chunked` flag:** Priority-tier chunking within a single
-  implementor round. Superseded by the dimensional model for the HIL use case,
-  but the flag remains available for backward compatibility.
+  implementor round. Superseded by the phased dimensional model for the HIL
+  use case. Can be removed in a follow-up cleanup.
 - **WorkspaceWatcher:** Already watches progress.log and emits workspace-progress
   events to the browser. The new JSONL events extend this existing capability.
 
