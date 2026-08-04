@@ -22,7 +22,7 @@ multiple concurrent conversations about different parts of the document.
 | UI layout | Dedicated threads panel | Fits panel-based architecture. Gives room for multi-turn conversations. Bidirectional linking with diff is the key UX. |
 | Thread vs debate | Independent | Threads don't participate in rounds or priorities. Two filtered views of the same channel. |
 | Thread lifecycle | open → resolved | Simple. Any participant can resolve. No priority/verified/deferred. Persistence via Qhorus. |
-| Approach | Thread-as-Domain-Concept | First-class `SelectionThread` type, dedicated projection and MCP tools. Main debate model untouched. |
+| Approach | Thread-as-Domain-Concept | First-class `SelectionThread` type, dedicated projection and MCP tools. Main debate projection gains a threadId skip filter; DebateChannelBackend gains thread-aware event routing. |
 
 ## Architecture
 
@@ -37,12 +37,18 @@ record ThreadEntry(String threadId, String sender, String content,
                    String agentRole, Instant timestamp)
 ```
 
-`DebateSession` additions:
-- `Map<String, SelectionThread> threads` — thread registry keyed by threadId
+`DebateSession` additions (thread metadata only — conversation content lives
+exclusively in the projection, not in DebateSession):
+- `Map<String, SelectionThread> threads` — thread metadata registry keyed by threadId (ID, anchor, status — no conversation entries)
 - `startThread(SelectionScope anchor) → String` — creates thread, returns UUID
 - `resolveThread(String threadId)` — sets status to RESOLVED
-- `reopenThread(String threadId)` — sets status to OPEN
 - `findThreadsNear(SelectionScope scope) → List<SelectionThread>` — finds threads whose anchors overlap the given scope (same side, any line overlap: `anchor.side == scope.side && anchor.startLine <= scope.endLine && anchor.endLine >= scope.startLine`)
+
+**Source of truth:** `DebateSession.threads` holds metadata for fast MCP tool
+validation (does thread exist? is it OPEN?). `ThreadProjection` is the sole
+authority for conversation content (entries, ordering, rendering). These are
+complementary, not competing — same pattern as `DebateSession.participants`
+(metadata) vs `DebateChannelProjection` (conversation state).
 
 ### Message Encoding
 
@@ -51,7 +57,7 @@ Thread messages use the existing `DHMETA:` sentinel and `ChannelMessageMeta.enco
 | Key | Values | Purpose |
 |-----|--------|---------|
 | `threadId` | UUID string | Partition key — present on all thread messages |
-| `threadAction` | `START`, `REPLY`, `RESOLVE`, `REOPEN` | Lifecycle action |
+| `threadAction` | `START`, `REPLY`, `RESOLVE` | Lifecycle action (no REOPEN — simple lifecycle, backward-compatible to add later) |
 
 The `START` message's metadata also carries the selection anchor: `side`, `startLine`, `endLine`, `selectedText`.
 
@@ -79,7 +85,7 @@ Behaviour:
 - `apply()` checks for `threadId` in metadata — absent → return state unchanged (skip main debate messages)
 - `START` → create new ThreadView with anchor parsed from metadata
 - `REPLY` → append ThreadEntry to existing thread
-- `RESOLVE` / `REOPEN` → update status
+- `RESOLVE` → update status to RESOLVED
 - Follows `channel-projection-apply-must-not-throw` protocol
 
 **`DebateChannelProjection` change:** skip messages with `threadId` in metadata.
@@ -138,14 +144,31 @@ via `eventBus.pushDebateEntries()`. For thread messages:
 
 | Event | Trigger | Payload |
 |-------|---------|---------|
-| `thread-entries` | Any thread message | `DebateStreamEntry[]` with threadId |
+| `thread-entries` | Any thread message | `ThreadStreamEntry[]` |
 | `thread-created` | START message | `{threadId, anchor, createdBy}` |
 | `thread-resolved` | RESOLVE message | `{threadId}` |
 
 The backend checks for `threadId` in metadata and routes to `thread-entries`
 instead of `debate-entries`. The debate-feed panel remains unchanged.
 
-`DebateStreamEntry` gains an optional `threadId` field.
+**`ThreadStreamEntry`** — a separate type from `DebateStreamEntry`, with
+thread-specific fields:
+
+```typescript
+interface ThreadStreamEntry {
+  threadId: string;
+  threadAction: string;  // START, REPLY, RESOLVE
+  content: string;
+  agentRole: string;
+  timestamp?: string;
+  // START-only fields:
+  anchor?: { side: string; startLine: number; endLine: number; selectedText: string };
+}
+```
+
+Thread entries use `threadAction` (START/REPLY/RESOLVE) instead of debate's
+`entryType` (RAISE/AGREE/COUNTER etc.). Separate types avoid union-type
+confusion and make each panel's contract explicit.
 
 ### UI
 
@@ -185,7 +208,6 @@ Applicable protocols for implementation:
 - `channel-projection-apply-must-not-throw` — ThreadProjection.apply() must never throw
 - `channel-projection-actor-type` — classify actors via actorType(), not sender strings
 - `debate-message-sentinel-encoding` — use DebateProtocol.META_SENTINEL for encoding
-- `panel-configure-idempotency` — retired (Lit migration eliminates the class of bug)
 
 ## Garden Context
 
