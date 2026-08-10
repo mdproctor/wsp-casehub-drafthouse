@@ -1,30 +1,33 @@
 # Handover — 2026-08-10
 
-**Branch:** `issue-71-conversation-protocol` (active, mid-work)
+**Branch:** `issue-71-autonomous-triggering` (closed, landed as b4db9b3 on main)
 
 ## What Happened
 
-Audited blocks + qhorus for #71, filed blocks#91 (ConversationOrchestrator —
-now shipped). Wrote spec + 5-task implementation plan mapping blocks API to
-drafthouse. Also fixed CI (red 12 days — npm dangling symlinks + missing
-blocks-ui checkout, 3 commits on main). Updated #71 and #72 issue bodies.
-Filed soredium#198 (ordered dimensional reviews) as upstream for #72.
+Wired the triggering logic for autonomous debate sessions (#71). Three
+changes: DebateSession gained an AtomicBoolean CAS guard
+(markConverseStarted()) for exactly-once triggering.
+DebateChannelBackend.post() triggers orchestrator.converse() on a virtual
+thread when the first message arrives on an autonomous session, handles
+FLAG_HUMAN termination via orchestrator.terminate(), and pushes WebSocket
+metadata events (autonomous-completed, autonomous-failed) on completion.
+ContestedEscalation(3) added to the termination composition, and
+endDebate() terminates running orchestrators before cleanup.
 
-## Immediate Next Step
-
-Run `/work` on branch `issue-71-conversation-protocol` to resume. Execute the
-plan at `plans/2026-08-09-autonomous-debate-wiring.md` — 5 tasks, sequential,
-use `executing-plans`.
+Also filed Hortora/soredium#205 — /work should detect active branch from
+HANDOFF.md when on main.
 
 ## Cross-Module
 
-**Blocked by** (gates #72):
-- `soredium` — ordered dimensional reviews + decision validation (Hortora/soredium#198) · M · Med
+None — all changes within drafthouse.
 
-## References
+## What's Next
 
-| Context | Where |
-|---------|-------|
-| Design spec | specs/issue-71-conversation-protocol/2026-08-09-autonomous-debate-wiring-design.md |
-| Implementation plan | plans/2026-08-09-autonomous-debate-wiring.md |
-| CI fix commits | 58c82fd, 2521523, 4e6c07a (on project main) |
+#71 is closed. The autonomous debate loop is fully wired: start_debate
+with autonomous=true → first raise_point triggers converse() → agents
+respond automatically → terminates on agreement, contested escalation,
+max rounds, or external FLAG_HUMAN/endDebate.
+
+Next logical work: Claudony integration (binding sessions to Claudony
+channels, context injection on turn start). This was listed as item 5 in
+the original #71 issue body — a separate issue.
