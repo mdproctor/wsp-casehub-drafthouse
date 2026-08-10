@@ -1,0 +1,10 @@
+branch: issue-71-autonomous-triggering
+state: scaffolded
+project-sha: 0d63489516fce27cc1a183507164182c5c4d7374
+date: 2026-08-10
+issue: 71
+issue-repo: casehubio/drafthouse
+covers: 71
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
