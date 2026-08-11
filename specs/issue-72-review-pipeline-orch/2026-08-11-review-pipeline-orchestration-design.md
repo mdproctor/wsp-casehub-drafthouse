@@ -100,7 +100,7 @@ Four new event types to match review.py's existing JSONL events:
 public record DimensionStart(String dimension, String degree, int phase) implements ProgressEvent {}
 public record RoundFindings(String dimension, int roundNumber, int issueCount,
                             Map<String, Integer> byPriority) implements ProgressEvent {}
-public record RoundEnd(String dimension, int roundNumber, int addressed, int contested) implements ProgressEvent {}
+public record RoundEnd(String dimension, int roundNumber, double cost) implements ProgressEvent {}
 public record DimensionDone(String dimension, int totalRounds, double cost, int issues) implements ProgressEvent {}
 ```
 
