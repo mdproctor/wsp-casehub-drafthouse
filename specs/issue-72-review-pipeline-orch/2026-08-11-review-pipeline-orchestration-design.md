@@ -33,7 +33,9 @@ of the review pipeline. Four deliverables:
 
 **Interaction model:** The browser is a dashboard. HIL decisions (approve, refuse,
 discuss) stay in the terminal session as #108 designed. The pipeline panel shows
-state, not controls.
+state, not controls. Issue #72's description mentions browser-based HIL gates —
+this was scoped to read-only checkpoint indicators during brainstorming; full
+browser HIL control is a future concern.
 
 ## Architecture
 
@@ -42,7 +44,7 @@ Calling Session (Claude Code / design-review skill)
   │
   ├── start_pipeline(debateSessionId, dimensions, ordered, specPath)
   │     └── Server creates PipelineSession
-  │           ├── WorkspaceWatcher per dimension (tails progress.log)
+  │           ├── PipelineWatcher per dimension (tails progress.log only)
   │           └── Pushes pipeline-progress events via WebSocket
   │
   ├── update_pipeline(pipelineId, action, dimension?)
@@ -54,18 +56,24 @@ Calling Session (Claude Code / design-review skill)
         └── Parses decisions.md, pushes pipeline-decisions events
 
 Server (Quarkus)
-  ├── PipelineSession (domain object — server/api/)
+  ├── PipelineSession (data model — server/api/)
   │     ├── pipelineId: String
   │     ├── debateSessionId: String
   │     ├── dimensions: List<DimensionDescriptor>
-  │     │     ├── name, workspacePath, status (PENDING/RUNNING/DONE/KILLED)
+  │     │     ├── name, workspacePath, status (PENDING/RUNNING/DONE/KILLED/FAILED)
   │     │     ├── currentRound, totalRounds, degree
-  │     │     ├── issueCount (by priority), cost, elapsed
+  │     │     ├── issuesByPriority, cost, elapsed
   │     │     └── findings: List<PipelineFinding>
   │     ├── ordered: boolean
   │     ├── currentPhase: PipelinePhase
   │     ├── checkpointStatus: CheckpointStatus
   │     └── decisions: List<PipelineDecision>
+  │
+  ├── PipelineOrchestrator (state machine — server/runtime/)
+  │     └── Receives ProgressEvents, mutates PipelineSession, pushes WS events
+  │
+  ├── PipelineWatcher (progress.log tailer — server/runtime/)
+  │     └── Lightweight: tails progress.log only, no debate channel dispatch
   │
   ├── PipelineSessionRegistry (runtime, in-memory ConcurrentHashMap)
   │
@@ -73,8 +81,7 @@ Server (Quarkus)
   │
   └── WebSocketEventBus
         ├── pipeline-progress topic (aggregate state)
-        ├── pipeline-decisions topic (decision cards)
-        └── workspace-progress topic (per-dimension detail, existing)
+        └── pipeline-decisions topic (decision cards)
 
 Browser (review-pipeline panel)
   ├── Decisions section (collapsible, top)
@@ -91,7 +98,8 @@ Four new event types to match review.py's existing JSONL events:
 
 ```java
 public record DimensionStart(String dimension, String degree, int phase) implements ProgressEvent {}
-public record RoundFindings(String dimension, int roundNumber, int issueCount) implements ProgressEvent {}
+public record RoundFindings(String dimension, int roundNumber, int issueCount,
+                            Map<String, Integer> byPriority) implements ProgressEvent {}
 public record RoundEnd(String dimension, int roundNumber, int addressed, int contested) implements ProgressEvent {}
 public record DimensionDone(String dimension, int totalRounds, double cost, int issues) implements ProgressEvent {}
 ```
@@ -102,9 +110,35 @@ JSON payload and delegates to a `parseJsonEvent()` method that reads the `type`
 field and constructs the appropriate record. Existing regex patterns for
 plain-text lines are unchanged.
 
-### PipelineSession domain model
+**Sealed interface impact:** Adding these records to the sealed `ProgressEvent`
+interface requires updating the exhaustive switch in
+`WorkspaceWatcher.toPayload()`. The new cases map to `workspace-progress`
+metadata events with the same field names. This is a mechanical update.
 
-Lives in `server/api/` (pure Java, no Quarkus deps) alongside `DebateSession`.
+### Module split: data model vs state machine
+
+The review surfaced a module boundary violation: `PipelineSession` cannot live
+in `server/api/` if its state-machine logic references `ProgressEvent` from
+`server/runtime/`.
+
+**Resolution:** Split concerns across modules:
+
+- **`server/api/`** — pure data model only: `PipelineSession` (data holder),
+  `DimensionDescriptor`, `PipelinePhase`, `CheckpointStatus`, `DimensionStatus`,
+  `PipelineDecision`, `PipelineFinding`, `PipelineDecisionParser`. No references
+  to `ProgressEvent` or any runtime class. `PipelineSession` exposes mutator
+  methods (`advanceDimension(name, status)`, `setPhase(phase)`,
+  `setCheckpoint(status)`) but does NOT decide when to call them.
+
+- **`server/runtime/`** — orchestration logic: `PipelineOrchestrator`
+  (`@ApplicationScoped`) owns the state machine. It receives `ProgressEvent`s
+  from `PipelineWatcher`, maps them to `PipelineSession` mutations, detects
+  phase transitions, and pushes `pipeline-progress` events via `WebSocketEventBus`.
+
+This matches the existing pattern: `DebateSession` (api) is a data holder;
+`DebateChannelBackend` (runtime) owns the orchestration logic.
+
+### PipelineSession domain model (server/api/)
 
 **`PipelineSession`:**
 - `pipelineId: String` — unique identifier (UUID)
@@ -116,10 +150,14 @@ Lives in `server/api/` (pure Java, no Quarkus deps) alongside `DebateSession`.
 - `checkpointStatus: CheckpointStatus` — NONE, PENDING, or RESOLVED
 - `decisions: List<PipelineDecision>` — parsed decisions from decisions.md
 
+All field mutations go through methods that are synchronized on the session
+instance. Multiple `PipelineWatcher` threads call `PipelineOrchestrator` which
+calls these methods — thread safety is required.
+
 **`DimensionDescriptor`:**
 - `name: String` — coherence, structure, robustness, crosscutting
 - `workspacePath: String` — filesystem path to dimension's review workspace
-- `status: DimensionStatus` — PENDING, RUNNING, DONE, KILLED
+- `status: DimensionStatus` — PENDING, RUNNING, DONE, KILLED, FAILED
 - `currentRound: int`, `totalRounds: int`, `degree: String`
 - `issuesByPriority: Map<String, Integer>` — HIGH/MEDIUM/LOW counts
 - `cost: double`, `elapsedSeconds: int`
@@ -129,9 +167,20 @@ Lives in `server/api/` (pure Java, no Quarkus deps) alongside `DebateSession`.
 `ROUND_1`, `HIL_CHECKPOINT_1`, `REMAINING_ROUNDS`, `HIL_CHECKPOINT_2`,
 `CROSS_CUTTING`, `COMPLETE`
 
+When `ordered = true`, the phase model changes: only one dimension runs at a
+time. The phase sequence becomes per-dimension rather than across-all. The
+pipeline header renders as `Structure` → `HIL` → `Coherence` → `HIL` →
+`Robustness` → `HIL` → `Cross-cutting` (matching the design-review skill's
+ordered sequence). `PipelineOrchestrator` tracks which dimension is active
+and advances to the next when the calling session calls `dimension_accepted`.
+
 **`CheckpointStatus`** enum: `NONE`, `PENDING`, `RESOLVED`
 
-**`DimensionStatus`** enum: `PENDING`, `RUNNING`, `DONE`, `KILLED`
+**`DimensionStatus`** enum: `PENDING`, `RUNNING`, `DONE`, `KILLED`, `FAILED`
+
+`FAILED` covers `REVIEW FAILED`, `REVIEW CRASHED`, and `REVIEW INTERRUPTED`
+terminal states from review.py. The browser shows a failed badge (distinct
+from killed — killed is a deliberate human decision, failed is an error).
 
 **`PipelineDecision`:**
 - `id: String` (D1, D2, ...)
@@ -159,6 +208,76 @@ into a `List<PipelineDecision>`. Splits on `## D<N>:` headers, extracts
 `**Choice:**`, `**Alternatives:**`, `**Rationale:**`, `**Trade-offs:**`,
 `**Exploration:**`, `**Status:**`, and optional `**Depends on:**` fields.
 
+### PipelineWatcher (server/runtime/)
+
+A lightweight progress.log tailer — NOT a reuse of `WorkspaceWatcher`.
+
+The review surfaced that `WorkspaceWatcher` is tightly coupled to the debate
+channel infrastructure: it requires a `DebateSession`, `MessageService`,
+`WorkspaceReplayAdapter`, and full channel dispatch machinery (reviewer/
+implementor file parsing, message dispatch, tracker diff reconciliation).
+Pipeline dimensions only need progress.log tailing for status events.
+
+`PipelineWatcher` extracts the progress.log tailing concern:
+- Watches a single workspace directory for `progress.log` changes
+  (reuses `DirectoryWatcher` from io.methvin)
+- Tails new lines, parses via `ProgressLogParser.parse()`
+- Delivers parsed `ProgressEvent`s to a `Consumer<ProgressEvent>` callback
+  (the `PipelineOrchestrator`)
+- Stops on terminal events (`ReviewTerminal`)
+
+This is ~50 lines — the tail logic extracted from
+`WorkspaceWatcher.tailProgressLog()` without the debate channel dispatch.
+
+**Future:** `WorkspaceWatcher` can be refactored to compose `PipelineWatcher`
+for its progress.log tailing, eliminating duplication. Not in scope for this
+issue.
+
+### PipelineOrchestrator (server/runtime/)
+
+`@ApplicationScoped`. Owns the state machine logic that maps `ProgressEvent`s
+to `PipelineSession` state changes and pushes WebSocket events.
+
+**Event → state mapping:**
+
+| Event | State change |
+|-------|-------------|
+| `DimensionStart` | dimension → RUNNING, update round/degree |
+| `RoundFindings` | update issuesByPriority, populate findings |
+| `RoundEnd` | increment currentRound, update addressed/contested counts |
+| `DimensionDone` | dimension → DONE, update final cost/issues |
+| `ReviewTerminal(DONE)` | dimension → DONE |
+| `ReviewTerminal(FAILED/CRASHED/INTERRUPTED)` | dimension → FAILED |
+| `RoundComplete` | update round number, check phase transitions |
+
+**Findings population:** When a `RoundFindings` event arrives, the orchestrator
+reads the dimension's `tracker.md` file (at `workspacePath/tracker.md`) to
+extract individual finding entries (issue ID, priority, summary, location).
+This is a one-time read per round — `WorkspaceParser.parseTracker()` already
+handles this format. The parsed entries become `PipelineFinding` objects on the
+`DimensionDescriptor`.
+
+**Phase auto-advancement:**
+- All non-cross-cutting dimensions have `currentRound >= 1` → advance to
+  `HIL_CHECKPOINT_1`
+- All surviving (non-KILLED, non-FAILED) dimensions reach DONE → advance to
+  `HIL_CHECKPOINT_2`
+- `crosscutting_started` MCP call → advance to `CROSS_CUTTING`
+- `pipeline_complete` MCP call → advance to `COMPLETE`
+
+**Checkpoint resolution:** When the calling session calls `update_pipeline`
+with `dimension_accepted` for the last unresolved dimension, the orchestrator
+sets `checkpointStatus = RESOLVED` and advances to the next phase
+(`REMAINING_ROUNDS` after checkpoint 1, or presents the cross-cutting gate
+after checkpoint 2).
+
+**Thread safety:** `PipelineOrchestrator` synchronizes on the `PipelineSession`
+instance when processing events. Multiple `PipelineWatcher` threads deliver
+events concurrently — the orchestrator serializes mutations.
+
+After each state change, the orchestrator pushes a full `pipeline-progress`
+snapshot via `WebSocketEventBus.pushMetadata()`.
+
 ### PipelineSessionRegistry
 
 `@ApplicationScoped` in `server/runtime/`. In-memory
@@ -167,6 +286,11 @@ transient (tied to a running review, not historical).
 
 Methods: `create(PipelineSession)`, `get(String pipelineId)`,
 `remove(String pipelineId)`.
+
+**Cleanup:** `pipeline_complete` action in `update_pipeline` stops all
+`PipelineWatcher` instances and removes the session from the registry. If the
+calling session never calls `pipeline_complete` (abandoned review), sessions
+remain in memory until server restart — acceptable for a development tool.
 
 ### PipelineMcpTools
 
@@ -188,27 +312,9 @@ boolean ordered
 String specPath
 ```
 
-Creates a `PipelineSession`, starts a `WorkspaceWatcher` per dimension
-(reusing the existing `WorkspaceWatcher` infra from `DraftHouseInstances`),
+Creates a `PipelineSession`, starts a `PipelineWatcher` per dimension,
 registers in `PipelineSessionRegistry`, pushes initial `pipeline-progress`
 event. Returns pipeline state JSON.
-
-Each dimension's `WorkspaceWatcher` pushes `workspace-progress` events as
-today. `PipelineSession` registers a `ProgressListener` callback on each
-`WorkspaceWatcher` — a simple `Consumer<ProgressEvent>` interface that
-`WorkspaceWatcher.tailProgressLog()` calls before pushing to the
-`WebSocketEventBus`. This gives PipelineSession server-side visibility
-into dimension events without subscribing to its own WebSocket output.
-When a `DimensionStart` event arrives, the corresponding
-`DimensionDescriptor` transitions to `RUNNING`; when `DimensionDone`
-arrives, it transitions to `DONE`.
-
-Phase auto-advancement: when all non-cross-cutting dimensions report
-`ROUND_COMPLETE` with `round: 1`, `currentPhase` advances to
-`HIL_CHECKPOINT_1`. When all surviving dimensions report `REVIEW_TERMINAL`,
-`currentPhase` advances to `HIL_CHECKPOINT_2`. The server detects these
-conditions — the calling session does NOT need to call `update_pipeline`
-for phase advancement that is derivable from events.
 
 **`update_pipeline`:**
 
@@ -226,13 +332,18 @@ String dimension
 For state changes that can't be derived from progress.log — specifically,
 HIL decisions made in the terminal:
 
-- `checkpoint_reached` — sets `checkpointStatus = PENDING` (the calling
-  session calls this when presenting the checkpoint to the human)
-- `dimension_refused` — sets the named dimension's status to `KILLED`
-- `dimension_accepted` — confirms the dimension continues (no-op for
-  state but clears the pending checkpoint if all dimensions are resolved)
+- `checkpoint_reached` — sets `checkpointStatus = PENDING`
+- `dimension_refused` — sets the named dimension's status to `KILLED`,
+  stops its `PipelineWatcher`
+- `dimension_accepted` — confirms the dimension continues; if all dimensions
+  are now accepted, sets `checkpointStatus = RESOLVED` and advances phase
 - `crosscutting_started` — sets `currentPhase = CROSS_CUTTING`
-- `pipeline_complete` — sets `currentPhase = COMPLETE`, stops all watchers
+- `pipeline_complete` — sets `currentPhase = COMPLETE`, stops all watchers,
+  removes from registry
+
+Each action is **idempotent** — calling the same action twice with the same
+parameters is a no-op (returns current state). This handles retry scenarios
+from the calling session.
 
 Each action pushes an updated `pipeline-progress` event.
 
@@ -299,6 +410,15 @@ Two new topics via the existing `WebSocketEventBus.pushMetadata()`:
 
 Both route through the debate session's channel ID.
 
+### Browser reconnect recovery
+
+When the browser reconnects (WebSocket reconnect event), the pipeline panel
+needs to recover current state. The panel sends a `pipeline-state-request`
+message on the WebSocket. The server responds with the current
+`pipeline-progress` and `pipeline-decisions` snapshots from the
+`PipelineSessionRegistry`. This reuses the existing reconnect pattern from
+`debate-feed` (which replays debate entries on reconnect).
+
 ### workspace-status enhancement
 
 The existing `workspace-status` panel gains a handler for `pipeline-progress`
@@ -318,6 +438,7 @@ existing patterns (Shadow DOM, `configure(props)`, `onPagesEvent()`,
 **Event subscriptions:**
 - `pipeline-progress` — updates phase header, dimension cards, findings
 - `pipeline-decisions` — updates decision section
+- `reconnected` — requests current state snapshot
 
 **Layout (vertical stack):**
 
@@ -329,7 +450,9 @@ existing patterns (Shadow DOM, `configure(props)`, `onPagesEvent()`,
    - Auto-collapses when all decisions reach terminal status
 
 2. **Pipeline header** — horizontal row of phase segments:
-   `Round 1` → `HIL` → `Rounds 2+` → `HIL` → `Cross-cutting`
+   - Parallel mode: `Round 1` → `HIL` → `Rounds 2+` → `HIL` → `Cross-cutting`
+   - Ordered mode: `Structure` → `HIL` → `Coherence` → `HIL` → `Robustness`
+     → `HIL` → `Cross-cutting`
    - Active: accent colour, bold text
    - Complete: success colour, checkmark icon
    - Pending: muted colour
@@ -337,11 +460,13 @@ existing patterns (Shadow DOM, `configure(props)`, `onPagesEvent()`,
 
 3. **Dimension cards** — one per dimension, ordered:
    - Status badge: running (pulsing dot, reuse workspace-status animation),
-     done (green check), killed (red, strikethrough label)
+     done (green check), killed (red, strikethrough label),
+     failed (red, error icon — distinct from killed)
    - Progress bar: thin bar showing `currentRound / totalRounds`
    - Stats line: issue count pills (HIGH=red, MEDIUM=amber, LOW=grey),
      cost (`$X.XX`), elapsed timer (`Nm Ns`)
-   - Killed dimensions: "refused at round 1 checkpoint" label
+   - Killed dimensions: "refused at checkpoint" label
+   - Failed dimensions: "review failed" or "review crashed" label
 
 4. **Findings feed** — scrollable list:
    - Each finding: dimension colour badge, priority pill, issue ID, summary
@@ -373,11 +498,17 @@ existing patterns (Shadow DOM, `configure(props)`, `onPagesEvent()`,
 
 - **ProgressLogParser** — `DimensionStart`, `RoundFindings`, `RoundEnd`,
   `DimensionDone` parse from `EVENT: {...}` lines. Existing plain-text
-  event types unchanged. Null/blank/malformed input returns null.
+  event types unchanged. Null/blank/malformed JSON returns null.
 - **PipelineSession** — dimension status transitions
-  (PENDING→RUNNING→DONE, PENDING→RUNNING→KILLED), phase progression
-  (ROUND_1→HIL_CHECKPOINT_1→REMAINING_ROUNDS→...), checkpoint status
-  changes (NONE→PENDING→RESOLVED).
+  (PENDING→RUNNING→DONE, PENDING→RUNNING→KILLED, PENDING→RUNNING→FAILED),
+  phase progression, checkpoint status changes, synchronized access from
+  multiple threads.
+- **PipelineOrchestrator** — event-to-state mapping: DimensionStart sets
+  RUNNING, DimensionDone sets DONE, ReviewTerminal(FAILED) sets FAILED.
+  Phase auto-advancement triggers. Checkpoint resolution logic. Ordered
+  mode advances one dimension at a time.
+- **PipelineWatcher** — tails a test progress.log, delivers parsed events
+  to a callback, stops on terminal event.
 - **PipelineSessionRegistry** — create/get/remove, concurrent access.
 - **PipelineDecisionParser** — parse decisions.md format, all fields
   including optional `Depends on:`, empty/malformed input.
@@ -386,31 +517,35 @@ existing patterns (Shadow DOM, `configure(props)`, `onPagesEvent()`,
 
 - **PipelineMcpTools** — `start_pipeline` creates session and returns
   state JSON, `update_pipeline` with each action pushes correct events,
+  `update_pipeline` idempotency (same action twice is no-op),
   `load_decisions` parses and pushes decision data, unknown pipeline ID
   returns error.
-- **WorkspaceWatcher dimension events** — watcher tails progress.log
-  containing `EVENT:` lines, new event types parsed and pushed as
-  `workspace-progress` metadata.
+- **PipelineWatcher integration** — watcher tails a progress.log containing
+  `EVENT:` lines, new event types parsed and delivered to callback.
 
 ### E2E tests (Playwright)
 
 - **Panel visibility** — hidden by default, topbar button toggles,
   auto-shown on pipeline-progress event.
 - **Dimension cards** — mock pipeline-progress events via WebSocket,
-  verify status badges, round progress, issue counts, cost.
+  verify status badges (running/done/killed/failed), round progress,
+  issue counts, cost.
 - **Pipeline header** — active/complete/pending phase styling on
-  state transitions.
+  state transitions. Ordered mode shows dimension names as phases.
 - **Findings feed** — mock findings, verify rendering with dimension
   badges and priority pills. Click finding → `point-selected` dispatched.
 - **Decision cards** — mock pipeline-decisions events, verify status
   badges. Auto-collapse when all confirmed.
 - **HIL checkpoint** — mock checkpoint_reached, verify warning badge
   on HIL phase segment.
+- **Reconnect recovery** — disconnect WebSocket, reconnect, verify
+  pipeline state is recovered.
 
 ## Dependencies
 
 - No new external dependencies
-- Extends existing `ProgressLogParser`, `WorkspaceWatcher`, `WebSocketEventBus`
+- Extends existing `ProgressLogParser` (new sealed records)
+- New `PipelineWatcher` (extracts tail logic, reuses `DirectoryWatcher`)
 - New panel in `@casehubio/blocks-ui-document-workbench` (existing package)
 - review.py already emits required JSONL events (soredium#198 shipped)
 
@@ -421,3 +556,4 @@ existing patterns (Shadow DOM, `configure(props)`, `onPagesEvent()`,
 - Changes to review.py or the design-review skill's orchestration logic
 - Cross-dimension context flow during reviews (dimensions stay isolated)
 - New event types in review.py (existing events are sufficient)
+- Refactoring WorkspaceWatcher to compose PipelineWatcher (follow-on)
