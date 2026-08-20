@@ -2,29 +2,30 @@
 
 ## D1: Session architecture model
 
-**Choice:** Composable capability model — a thin `DraftHouseSession` container with independently activatable capabilities, replacing the current three separate session types (ReviewSession, DebateSession, BrainstormSession).
+**Choice:** Composable facet model — a thin `DraftHouseSession` container with independently activatable facets (see D6 for naming rationale), replacing the current three separate session types (ReviewSession, DebateSession, BrainstormSession).
 **Alternatives:**
 - Phase state machine — single session with exclusive phases (BRAINSTORM | DRAFT | REVIEW | REVISE), one active at a time. Simpler model but fights composability — can't review while drafting.
 - Single flat session — god object with all fields from all modes, phase determines which are active. Simplest mental model but violates SRP and makes invariants hard to enforce.
 - Event-sourced session — session as event stream, state derived from projections. Most flexible but massive architectural shift for current scale.
-**Rationale:** Composability is the stated architectural direction. Capabilities must mix freely (draft + review simultaneously, voice during any mode). Existing session classes are preserved as internal capability state — minimal rewrite. The container is thin: identity, DocumentSet, working directory, event bus.
-**Trade-offs:** Two layers of abstraction (container + capability). Capability interaction contracts must be explicitly designed. More interfaces than a flat model.
+**Rationale:** Composability is the stated architectural direction. Facets must mix freely (draft + review simultaneously, voice during any mode). Existing session classes are preserved as internal facet state — minimal rewrite. The container is thin: identity, DocumentSet, working directory, event bus.
+**Trade-offs:** Two layers of abstraction (container + facet). Facet interaction contracts must be explicitly designed. More interfaces than a flat model.
 **Sources:** Existing codebase (DebateSession.java, BrainstormSession.java, ReviewSession.java), exploration of current mode structure
 **Exploration:** deep-analysis
-**Status:** captured
+**Status:** revised (R2-03: updated "capability" → "facet" terminology per D6)
 
-## D2: Cross-capability interaction model
+## D2: Cross-facet interaction model
 
-**Choice:** Artifacts as the integration API — capabilities communicate through files in a shared working directory. No direct references, no event subscriptions between capabilities. Three integration layers: (1) artifacts for data flow, (2) session-level DocumentSet for document identity, (3) WebSocket events for UI panel refresh only.
+**Choice:** Artifacts as the integration API — facets communicate through files in a shared working directory. No direct references, no event subscriptions between facets. Four integration layers: (1) artifacts for data flow (pipeline stages as files — diffable, hand-editable, persist across session restarts), (2) session-level DocumentSet for document identity, (3) Qhorus channel messages with `ArtefactRef` for facet-to-facet notification of artifact availability, (4) WebSocket events for UI panel refresh.
 **Alternatives:**
-- Event bus between capabilities — typed events, subscribe/react. Introduces coupling through event type definitions and ordering concerns.
-- Mediator pattern — session routes commands between capabilities. Centralises routing logic, becomes a god object over time.
-- Direct references — capabilities call each other's methods. Violates composability entirely.
-**Rationale:** File-based integration gives zero coupling between capabilities. Each capability can be tested in isolation with fixture files. Adding new capabilities means declaring artifact inputs/outputs — nothing else changes. Matches the pipeline model (each stage is a file, diffable, hand-editable). Stale input detection is simple timestamp comparison.
-**Trade-offs:** Not suitable for real-time inter-capability communication — but live interactions stay internal to their capability (debate rounds inside Review, option state machine inside Brainstorm). Only committed outputs cross boundaries.
-**Sources:** Unix philosophy (programs communicate through files), existing pipeline model discussion
+- Event bus between facets — typed events, subscribe/react. Introduces coupling through event type definitions and ordering concerns.
+- Mediator pattern — session routes commands between facets. Centralises routing logic, becomes a god object over time.
+- Direct references — facets call each other's methods. Violates composability entirely.
+- Qhorus channels as sole integration layer — use channel messages for both coordination and data flow. Fails for pipeline data: channel messages are communication records (speech acts, deliberation), not diffable/editable pipeline artifacts. `ArtefactRef` references artifacts, it doesn't replace them.
+**Rationale:** File-based integration gives zero coupling between facets. Each facet can be tested in isolation with fixture files. Adding new facets means declaring artifact inputs/outputs — nothing else changes. Matches the pipeline model (each stage is a file, diffable, hand-editable). Stale input detection is simple timestamp comparison. Pipeline stages must persist as files independently of any communication channel — they need to survive session restarts, be hand-editable, and support diff-based review. Qhorus `ArtefactRef` provides the complementary notification path: when a facet produces an artifact, it posts a channel message with an `ArtefactRef` pointing to the output file, signalling availability to other facets without conflating data flow with communication.
+**Trade-offs:** Not suitable for real-time inter-facet communication — but live interactions stay internal to their facet (debate rounds inside Review, option state machine inside Brainstorm). Only committed outputs cross boundaries.
+**Sources:** Unix philosophy (programs communicate through files), existing pipeline model discussion, Qhorus `ArtefactRef` record (`io.casehub.qhorus.api.message.ArtefactRef`)
 **Exploration:** deep-analysis
-**Status:** captured
+**Status:** revised (R2-06: made file-vs-channel justification explicit, added ArtefactRef notification as fourth integration layer, updated "capability" → "facet" per D6)
 
 ## D3: Voice-to-document pipeline architecture
 
@@ -41,17 +42,17 @@
 
 ## D4: Speech-to-text integration
 
-**Choice:** Local Whisper via whisper.cpp + Quarkus FFM (Panama Foreign Function API). DraftHouse owns the STT pipeline. Three voice input modes: push-to-talk, continuous with pauses, record-then-review. Browser captures audio via MediaRecorder, streams to Quarkus server, server transcribes via whisper.cpp with Metal acceleration on Apple Silicon.
+**Choice:** Local Whisper via whisper.cpp + Quarkus FFM (Panama Foreign Function API), implemented as `casehub-blocks-stt` (see D7 for scoping rationale). Three voice input modes: push-to-talk, continuous with pauses, record-then-review. Browser captures audio via MediaRecorder, streams to Quarkus server, server transcribes via whisper.cpp with Metal acceleration on Apple Silicon. DraftHouse consumes the `SpeechToTextService` SPI from `casehub-blocks-api`.
 **Alternatives:**
 - whisper-jni — JNI wrapper, Maven Central, but ships Linux/Win binaries only; needs custom macOS build.
 - WhisperJET — pure Java, no native bridge. Avoids all native complexity but CPU-only, slower.
 - Browser Web Speech API — free, built-in, but quality varies by browser (Chrome-only realistically).
 - Cloud STT service (Deepgram, AssemblyAI) — highest quality but adds dependency, cost, network requirement.
-**Rationale:** Already on Quarkus 3.34 with Java 21+. Panama FFM is the modern way to call native code — no JNI framework overhead. whisper.cpp with Metal gives native Apple Silicon acceleration. Jan 2026 tutorial shows this exact stack (Quarkus + FFM + whisper.cpp). No external dependencies.
+**Rationale:** Already on Quarkus 3.34 with Java 21+. Panama FFM is the modern way to call native code — no JNI framework overhead. whisper.cpp with Metal gives native Apple Silicon acceleration. Jan 2026 tutorial shows this exact stack (Quarkus + FFM + whisper.cpp). No external dependencies. The STT infrastructure is domain-agnostic (audio in → text out), so it lives in `casehub-blocks-stt` as an optional submodule (see D7). DraftHouse consumes the `SpeechToTextService` SPI for its document-specific pipeline (D3).
 **Trade-offs:** Requires jextract tooling setup. Native library build step. Only works on platforms where whisper.cpp builds (covers all our targets). Model download (~1-3GB for large-v3-turbo).
 **Sources:** [Quarkus + FFM tutorial](https://www.the-main-thread.com/p/java-speech-to-text-quarkus-whisper-ffm), [whisper-jni](https://github.com/GiviMAD/whisper-jni), [whisper.cpp](https://github.com/ggml-org/whisper.cpp), [WhisperJET](https://github.com/eix128/WhisperJET), [Metal benchmarks](https://www.promptquorum.com/local-llms/apple-silicon-whisper-metal-benchmark)
 **Exploration:** deep-analysis
-**Status:** captured
+**Status:** revised (R2-04: updated ownership from "DraftHouse owns the STT pipeline" to casehub-blocks-stt per D7)
 
 ## D5: MCP tool scoping mechanism
 
@@ -80,11 +81,12 @@
 
 ## D7: Voice infrastructure scoping — DraftHouse vs casehub-blocks
 
-**Choice:** Two-layer design: domain-agnostic STT infrastructure (whisper.cpp FFM bindings, audio capture, input modes, raw transcript management) in `casehub-blocks`; document-specific pipeline (transcript cleanup, draft generation, style adaptation) in DraftHouse.
+**Choice:** Two-layer design with optional submodule. The `SpeechToTextService` SPI interface lives in `casehub-blocks-api` (pure Java, no native dependencies). The whisper.cpp FFM implementation lives in `casehub-blocks-stt` — an optional submodule activated by adding it as a compile dependency. DraftHouse depends on `casehub-blocks-stt`; other applications that don't need STT are unaffected. Document-specific pipeline (transcript cleanup, draft generation, style adaptation) stays in DraftHouse.
 **Alternatives:**
 - DraftHouse-only — entire voice stack scoped to DraftHouse. Faster initial delivery but prevents reuse by other applications (devtown: voice PR review, clinical: voice dictation, life: voice commands).
 - Full blocks extraction — entire pipeline including document-aware cleanup in casehub-blocks. Over-generalises: document-context-aware cleanup IS domain-specific.
-**Rationale:** The STT pipeline (whisper.cpp + FFM + audio processing) takes audio in and produces text out — no DraftHouse-specific logic. APPLICATIONS.md boundary rules: "If a capability is useful across multiple applications, it belongs in the foundation." Voice input is clearly reusable across applications. casehub-blocks already exists as the foundation module for cross-application building blocks. Clean boundary: blocks provides `SpeechToTextService` (audio → transcript), DraftHouse consumes it for its document pipeline.
-**Sources:** APPLICATIONS.md boundary rules, casehub-blocks module structure
-**Exploration:** surfaced via adversarial review (R1-12)
-**Status:** captured
+- STT in blocks-core — SPI and implementation in the main blocks module. Contaminates every blocks consumer with native whisper.cpp build requirements even if they never use STT. casehub-blocks is currently pure Java (orchestration, conversation, trust routing, summarisation, channel dispatch — zero native dependencies). Adding native deps to core violates the principle that optional heavy dependencies use optional submodules (see: casehub-engine-ai, casehub-work-ai, casehub-neocortex/memory-qdrant, casehub-qhorus-postgres-broadcaster).
+**Rationale:** The STT pipeline (whisper.cpp + FFM + audio processing) takes audio in and produces text out — no DraftHouse-specific logic. APPLICATIONS.md boundary rules: "If a capability is useful across multiple applications, it belongs in the foundation." Voice input is clearly reusable across applications. casehub-blocks already exists as the foundation module for cross-application building blocks (`casehub-blocks-parent` with `blocks` and `engine-adapter` submodules). Clean boundary: `casehub-blocks-api` declares `SpeechToTextService` (audio → transcript); `casehub-blocks-stt` provides the whisper.cpp FFM implementation; DraftHouse adds `casehub-blocks-stt` as a compile dependency and consumes the SPI for its document pipeline.
+**Sources:** APPLICATIONS.md boundary rules, casehub-blocks module structure (pom.xml: blocks, engine-adapter), platform optional-module pattern (casehub-engine-ai, casehub-work-ai)
+**Exploration:** surfaced via adversarial review (R1-12), refined via R2-05
+**Status:** revised (R2-05: added optional submodule scoping — SPI in blocks-api, implementation in blocks-stt — to prevent native dependency contamination of pure-Java consumers)
