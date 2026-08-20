@@ -33,11 +33,13 @@ DraftHouseSession
 
 `DraftHouseSession` is a pure domain type in the api module. It does not hold runtime infrastructure references (`ToolManager`, `WebSocketEventBus`) — those are injected into facet implementations by the CDI container in the runtime module.
 
-**Qhorus channel model:** DraftHouseSession does not own a Qhorus channel. Each facet that requires deliberation messaging creates its own channel on activation and destroys it on deactivation. ReviewFacet creates a channel (as DebateSession does today). VoiceFacet, DraftFacet, and BrainstormFacet do not use Qhorus channels — they work with files and in-memory state.
+**Qhorus channel model:** DraftHouseSession does not own a Qhorus channel. Qhorus channels are created by facet-specific domain entry points (e.g., `start_debate` creates a channel for the debate session), not by `activate()`. ReviewFacet's entry points (`start_debate`, `start_review`, `load_workspace`) each create a Qhorus channel as part of domain initialization. VoiceFacet, DraftFacet, and BrainstormFacet do not use Qhorus channels — they work with files and in-memory state. On `deactivate()`, ReviewFacet cleans up any active channel.
 
 **Working directory:** `DraftHouseSession.workingDirectory` replaces `DebateSession.workspacePath`. When ReviewFacet activates with a DebateSession, it passes the session's workingDirectory to `DebateSession.setWorkspacePath()`. All facet artifact I/O is scoped to this directory.
 
 **Session-level MCP tools** (always available regardless of active facets):
+- `create_session` — creates a new DraftHouseSession, optionally with a working directory. Returns session ID. Preserves MCP-first workflow (no REST required).
+- `set_working_directory` — sets or changes the session's working directory (artifact space). Available without activating any facet.
 - `add_document`, `remove_document`, `list_documents`, `set_comparison` (lifted from DebateMcpTools)
 - `list_facets`, `activate_facet`, `deactivate_facet`
 - `list_reviewers`, `get_reviewer_instructions`
@@ -64,14 +66,26 @@ public interface Facet {
 ```
 
 ```java
-public record ArtifactSpec(String pathPattern, String description) {}
+public record ArtifactSpec(String pathPattern, String description, boolean required) {
+    public ArtifactSpec(String pathPattern, String description) {
+        this(pathPattern, description, false);
+    }
+}
 ```
 
-`ArtifactSpec` defines the artifact contract for a facet. `pathPattern` is a glob pattern relative to the working directory (e.g., `notes/accumulated.md`, `stages/*.md`). `description` documents the artifact's purpose for tooling and diagnostics.
+`ArtifactSpec` defines the artifact contract for a facet. `pathPattern` is a glob pattern relative to the working directory (e.g., `notes/accumulated.md`, `stages/*.md`). `description` documents the artifact's purpose. `required` indicates whether the facet can function without this input — defaults to `false` (optional). Facets generate from whatever inputs are available, gracefully degrading when optional inputs are absent.
 
-`activate()` initialises facet-specific state. Facet implementations are CDI beans in the runtime module — they receive `ToolManager` and `WebSocketEventBus` via `@Inject`, then register MCP tools via `ToolManager.newTool()` during activation.
-`deactivate()` deregisters tools via `ToolManager.removeTool()` and cleans up.
-Connected MCP clients receive automatic `tools/list_changed` notifications on each transition.
+**Two-phase facet lifecycle:**
+
+1. **Activation** (`activate()`) — registers MCP tools via `ToolManager.newTool()` and sets up UI panels. The facet is "available" — its tools are visible to MCP clients. No domain-specific state is created yet (no DebateSession, no Qhorus channel, no BrainstormSession).
+
+2. **Domain initialization** (via entry-point tools like `start_debate`, `start_brainstorm`) — creates domain-specific state: DebateSession + Qhorus channel, BrainstormSession, etc. The facet is now "active" with an initialized domain session.
+
+3. **Deactivation** (`deactivate()`) — if a domain session is active, cleans it up (ends the debate, destroys the Qhorus channel, etc.), then deregisters tools. Connected MCP clients receive automatic `tools/list_changed` notifications on each transition.
+
+Between activation and domain initialization, tools that require a domain session (e.g., `raise_point` without an active debate) return a clear error directing the user to call the entry-point tool first. Tools that don't require domain state (e.g., `list_reviewers`) work immediately.
+
+Facet implementations are CDI beans in the runtime module — they receive `ToolManager` and `WebSocketEventBus` via `@Inject`.
 
 The `Facet` interface and `ArtifactSpec` live in the api module (pure Java). Facet implementations live in the runtime module.
 
@@ -113,7 +127,7 @@ Immutable stage-based processing, document editing, preview rendering.
 | Aspect | Detail |
 |--------|--------|
 | State | Processing stages, current editor content, preview state |
-| Artifacts | Reads: `notes/accumulated.md`, `brainstorm/selected.md`, `findings/accepted.md`. Writes: `stages/01-raw-notes.md` through `stages/N-*.md` |
+| Artifacts | Reads (all optional): `notes/accumulated.md`, `brainstorm/selected.md`, `findings/accepted.md`. Writes: `stages/01-raw-notes.md` through `stages/N-*.md` |
 | MCP tools | `generate_draft`, `edit_stage`, `rerun_from_stage`, `get_stage_status` |
 | UI panels | Dual-screen: editable markdown editor (left), rendered preview (right), stage navigator |
 | REST | `GET /api/sessions/{id}/stages` — list stages with staleness indicators |
@@ -146,6 +160,15 @@ generated-at: 2026-08-20T10:30:00Z
 ```
 
 When inputs change, the UI shows a staleness indicator — "inputs changed since last run." The user decides when to re-run. Frontmatter survives session restarts, is human-readable, and is compatible with diff viewing. Hand-editing a stage file preserves the hash metadata (indicating what it was generated from, which is now stale relative to the edit).
+
+**Optional inputs and composability:** All three DraftFacet inputs are optional (`required=false`). `generate_draft` uses whatever inputs are available:
+- Voice + Draft (no Brainstorm): generates from `notes/accumulated.md` only
+- Brainstorm + Draft (no Voice): generates from `brainstorm/selected.md` only
+- Draft + Review (no Voice): generates from `findings/accepted.md` plus any existing draft
+- All three: combines notes, brainstorm brief, and accepted findings
+- No inputs at all: returns an error — at least one input is needed
+
+This enables free composition of facets without requiring all upstream facets to be active.
 
 #### ReviewFacet
 
@@ -224,20 +247,21 @@ All 37 existing tools mapped to their target:
 | | `load_decisions` | ReviewFacet |
 
 **New tools** (introduced by this spec):
-- Session-level: `list_facets`, `activate_facet`, `deactivate_facet`
+- Session-level: `create_session`, `set_working_directory`, `list_facets`, `activate_facet`, `deactivate_facet`
 - VoiceFacet: `start_recording`, `stop_recording`, `list_voice_notes`
 - DraftFacet: `generate_draft`, `edit_stage`, `rerun_from_stage`, `get_stage_status`
 
 ### 4. Cross-Facet Integration
 
-Four integration layers, each with a clear responsibility:
+Three integration layers, each with a clear responsibility:
 
 | Layer | Responsibility | Not used for |
 |-------|---------------|--------------|
 | **Artifacts** (files in working directory) | All data flow between facets | Real-time notifications |
 | **DocumentSet** (session-level) | Current document identity, comparison pair | Data content (that's in files) |
-| **ArtefactRef** (Qhorus channel messages) | Facet-to-facet notification of artifact availability | Data flow (artifacts are files, not messages) |
-| **WebSocket events** | UI panel refresh | Facet-to-facet signalling |
+| **WebSocket events** | UI notification of artifact changes and staleness | Facet-to-facet signalling |
+
+**Cross-facet data flow is always file-mediated.** When a facet produces an artifact, it writes a file and emits a WebSocket file-change event. The UI shows a staleness indicator on downstream facets. The user decides when to re-run downstream stages. There is no direct facet-to-facet notification — the user is always in the loop.
 
 **What is explicitly absent:**
 - No facet-to-facet method calls
@@ -257,7 +281,7 @@ BrainstormFacet:
   writes: brainstorm/options.json, brainstorm/selected.md
 
 DraftFacet:
-  reads:  notes/accumulated.md, brainstorm/selected.md, findings/accepted.md
+  reads (all optional): notes/accumulated.md, brainstorm/selected.md, findings/accepted.md
   writes: stages/01-*.md through stages/N-*.md
 
 ReviewFacet:
@@ -265,12 +289,10 @@ ReviewFacet:
   writes: findings/review-*.md, findings/accepted.md
 ```
 
-**ArtefactRef notification flow:** When a facet produces an artifact (e.g., VoiceFacet writes `notes/accumulated.md`), it posts a Qhorus channel message with an `ArtefactRef` pointing to the output file. This is new DraftHouse-to-Qhorus integration — `ArtefactRef` exists in `casehub-qhorus-api` (record with fields: `uri`, `type`, `label`, `scope`) but has not been used by DraftHouse before. The integration uses:
-- `ArtefactType.DOCUMENT` for all file-based artifacts
+**ArtefactRef for audit/provenance (within channel-bearing facets only):** Facets with active Qhorus channels (currently only ReviewFacet) attach `ArtefactRef` records to channel messages when producing file artifacts. This provides an audit trail linking review deliberation to its file outputs — connecting the debate that produced a finding to the `findings/review-{id}.md` file. ArtefactRef is NOT a cross-facet notification mechanism — it records artifact production on the channel for observability. The integration uses:
+- `ArtefactType.DOCUMENT` for file-based artifacts
 - `MessageDispatch.builder().artefactRefs(List.of(ref)).build()` to attach refs to channel messages
-- The `scope` field uses the Qhorus `SelectionScope` (not DraftHouse's `SelectionScope` — these are distinct types in different packages with different fields)
-
-Only facets with active Qhorus channels (ReviewFacet) can post ArtefactRef messages. For facets without channels (Voice, Draft, Brainstorm), artifact availability is signalled via WebSocket events to the UI, which can then notify the user.
+- The `scope` field uses the Qhorus `SelectionScope` (not DraftHouse's `SelectionScope` — distinct types in different packages)
 
 ### 5. Dynamic Tool Registration
 
@@ -292,7 +314,7 @@ toolManager.newTool("start_recording")
 toolManager.removeTool("start_recording");
 ```
 
-Connected MCP clients receive `tools/list_changed` notifications automatically. An LLM client that connects when Voice + Draft facets are active sees 16 tools (9 session-level + 3 voice + 4 draft). Activating Review adds 24 more. Deactivating Voice removes 3.
+Connected MCP clients receive `tools/list_changed` notifications automatically. An LLM client that connects when Voice + Draft facets are active sees 18 tools (11 session-level + 3 voice + 4 draft). Activating Review adds 24 more. Deactivating Voice removes 3.
 
 Session-level tools (document management, facet lifecycle, reviewer lookup) are registered at session creation and never removed.
 
