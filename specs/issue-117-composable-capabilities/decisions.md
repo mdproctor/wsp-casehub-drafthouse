@@ -55,12 +55,36 @@
 
 ## D5: MCP tool scoping mechanism
 
-**Choice:** Phase-filtered via platform WorkerFunctionProvider. DraftHouse registers all tools with the platform's dynamic tool discovery system, tagged by capability. Tools are registered when a capability is activated and deregistered when deactivated. LLM clients see only the tools for active capabilities (6-10 tools instead of 31).
+**Choice:** Dynamic registration via Quarkus MCP `ToolManager`. Each facet registers its tools when activated via `toolManager.newTool(name)` and deregisters via `toolManager.removeTool(name)`. Connected MCP clients receive automatic `tools/list_changed` notifications. LLM clients see only the tools for active facets (6–10 tools instead of 31).
 **Alternatives:**
 - Static but grouped — keep @Tool annotations, add naming prefixes (draft_*, review_*). All 31 tools visible, naming helps LLMs pick. Simple but doesn't reduce cognitive load.
-- MCP notifications (tools/list_changed) — dynamically change tool list, send MCP notification. Most MCP-native but requires client support for dynamic tools.
-**Rationale:** Platform already has WorkerFunctionProvider SPI with McpWorkerFunctionProvider for dynamic tool discovery. Leveraging this infrastructure means DraftHouse's tools are discoverable through the same mechanism as any other platform worker. Capability-scoped registration is natural — activate Voice, its 3 tools appear; deactivate, they disappear.
-**Trade-offs:** Requires DraftHouse to integrate with platform's worker discovery rather than using Quarkus MCP's @Tool annotations directly. More setup, but aligns with platform direction.
-**Sources:** Platform codebase: McpWorkerFunctionProvider, WorkerFunctionProviderRegistry, McpEndpointRegistry, McpClientRegistry, Capability record
-**Exploration:** quick
+- Phase-filtered via platform WorkerFunctionProvider — register tools through engine's worker dispatch SPI. Architecturally incoherent: `WorkerFunctionProvider` handles worker dispatch from case definitions (`JsonNode` → `WorkerFunction`), not MCP tool surface management. Would also introduce premature `casehub-engine-api` dependency (APPLICATIONS.md: DraftHouse depends on qhorus initially, engine added later).
+**Rationale:** Quarkus MCP Server 1.11.1 (already in DraftHouse's dependency tree) provides `ToolManager` with exactly the dynamic tool lifecycle needed: `newTool()` for programmatic registration with full schema control, `removeTool()` for deregistration, and automatic `tools/list_changed` notifications to connected clients via `ToolDefinition.register()`. No new dependencies. MCP-native. Claude Code supports `tools/list_changed`.
+**Trade-offs:** Requires programmatic tool registration instead of declarative `@Tool` annotations. More setup code per tool, but aligns with the composable facet model — tools belong to their facet, not to a static class.
+**Sources:** Quarkus MCP Server: `io.quarkiverse.mcp.server.ToolManager`, `io.quarkiverse.mcp.server.FeatureManager.FeatureDefinition.register()` javadoc
+**Exploration:** quick → revised via adversarial review
+**Status:** revised (R1-02/R1-03/R1-04/R1-05: replaced phantom WorkerFunctionProvider-based mechanism with Quarkus MCP ToolManager; eliminated premature casehub-engine-api dependency)
+
+## D6: Naming for composable session concept
+
+**Choice:** "Facet" — `VoiceFacet`, `DraftFacet`, `ReviewFacet`, `BrainstormFacet`. The `DraftHouseSession` container holds independently activatable facets.
+**Alternatives:**
+- Capability — collides with `io.casehub.worker.api.Capability` (worker dispatch), `io.casehub.eidos.api.AgentCapability`/`CapabilityHealth` (agent probing), `io.casehub.work.api.Capability`, `io.casehub.model.Capability` (engine schema), `io.quarkus.deployment.Capability` (build-time detection), and `dev.langchain4j.model.chat.Capability`. Six collisions across the dependency tree.
+- Mode — implies exclusivity (one mode at a time), which contradicts the composability goal. DraftHouse's design allows simultaneous voice + review + draft.
+- Feature — collides with Quarkus MCP's `FeatureManager<T>` which `ToolManager` extends. Also too generic.
+- Aspect — AOP connotations in the Java ecosystem would mislead.
+**Rationale:** "Facet" is semantically precise — a session has multiple facets simultaneously, like a gem. No existing collision in the platform or dependency tree. Naturally conveys composability: activating a facet reveals one face of the session without hiding others.
+**Sources:** Platform codebase: `io.casehub.worker.api.Capability`, `io.casehub.eidos.api.AgentCapability`, `io.casehub.work.api.Capability`, `io.casehub.model.Capability`, `io.quarkus.deployment.Capability`, `io.quarkiverse.mcp.server.FeatureManager`
+**Exploration:** surfaced via adversarial review (R1-11)
+**Status:** captured
+
+## D7: Voice infrastructure scoping — DraftHouse vs casehub-blocks
+
+**Choice:** Two-layer design: domain-agnostic STT infrastructure (whisper.cpp FFM bindings, audio capture, input modes, raw transcript management) in `casehub-blocks`; document-specific pipeline (transcript cleanup, draft generation, style adaptation) in DraftHouse.
+**Alternatives:**
+- DraftHouse-only — entire voice stack scoped to DraftHouse. Faster initial delivery but prevents reuse by other applications (devtown: voice PR review, clinical: voice dictation, life: voice commands).
+- Full blocks extraction — entire pipeline including document-aware cleanup in casehub-blocks. Over-generalises: document-context-aware cleanup IS domain-specific.
+**Rationale:** The STT pipeline (whisper.cpp + FFM + audio processing) takes audio in and produces text out — no DraftHouse-specific logic. APPLICATIONS.md boundary rules: "If a capability is useful across multiple applications, it belongs in the foundation." Voice input is clearly reusable across applications. casehub-blocks already exists as the foundation module for cross-application building blocks. Clean boundary: blocks provides `SpeechToTextService` (audio → transcript), DraftHouse consumes it for its document pipeline.
+**Sources:** APPLICATIONS.md boundary rules, casehub-blocks module structure
+**Exploration:** surfaced via adversarial review (R1-12)
 **Status:** captured
