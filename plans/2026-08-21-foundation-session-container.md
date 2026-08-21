@@ -240,9 +240,9 @@ package io.casehub.drafthouse;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Unified session container — owns shared state and manages independently activatable facets. */
 public class DraftHouseSession {
@@ -250,8 +250,8 @@ public class DraftHouseSession {
     private final String id;
     private final Instant created;
     private final DocumentSet documentSet;
-    private final Map<String, Facet> activeFacets = new LinkedHashMap<>();
-    private final Map<String, Object> metadata = new LinkedHashMap<>();
+    private final Map<String, Facet> activeFacets = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, Object> metadata = new java.util.concurrent.ConcurrentHashMap<>();
     private volatile Path workingDirectory;
 
     public DraftHouseSession(String id) {
@@ -311,8 +311,7 @@ Refs #117"
 ### Task 3: DraftHouseSessionStore SPI
 
 **Files:**
-- Create: `server/api/src/main/java/io/casehub/drafthouse/DraftHouseSessionSnapshot.java` (or extend existing pattern)
-- Create: `server/api/src/main/java/io/casehub/drafthouse/DraftHouseSessionStore.java`
+- Create: `server/api/src/main/java/io/casehub/drafthouse/DraftHouseSessionStore.java` (includes nested `SessionSnapshot` record)
 - Test: none needed (SPI interface only — tested via implementations)
 
 **Interfaces:**
@@ -429,11 +428,13 @@ Expected: Compilation failure
 ```java
 package io.casehub.drafthouse;
 
+import io.quarkus.arc.DefaultBean;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+@DefaultBean
 @ApplicationScoped
 public class NoOpDraftHouseSessionStore implements DraftHouseSessionStore {
     @Override public void save(SessionSnapshot snapshot) {}
@@ -481,9 +482,8 @@ public class DraftHouseSessionRegistry {
     public void remove(String sessionId) {
         DraftHouseSession session = sessions.remove(sessionId);
         if (session != null) {
-            for (String facetName : session.activeFacets().keySet()) {
-                session.deactivateFacet(facetName);
-            }
+            new java.util.ArrayList<>(session.activeFacets().keySet())
+                .forEach(session::deactivateFacet);
             store.remove(sessionId);
         }
     }
